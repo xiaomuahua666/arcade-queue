@@ -55,7 +55,7 @@ OneBot 允许在上报请求的**响应体**里直接返回 `{"reply": "..."}`�
 ### 1. 拉代码、配环境变量
 
 ```sh
-git clone <你的仓库> /opt/arcade-queue
+git clone https://github.com/xiaomuahua666/arcade-queue.git /opt/arcade-queue
 cd /opt/arcade-queue
 
 cp .env.example .env

@@ -115,12 +115,15 @@ apt install -y git
 ```
 
 ```sh
-git clone https://github.com/你的用户名/arcade-queue.git /opt/arcade-queue
+git clone https://github.com/xiaomuahua666/arcade-queue.git /opt/arcade-queue
 ```
 
-> 如果你还没把代码放到 GitHub，可以用别的办法传上去（比如
-> `scp -r 本地目录 root@你的IP:/opt/arcade-queue`）。总之最后代码要在
-> `/opt/arcade-queue` 这个目录里。
+**应该看到**：`Cloning into '/opt/arcade-queue'...` 然后几行进度，最后回到命令提示符。
+
+> **出错了？**
+> - `Could not resolve host: github.com` → 服务器上不了网，检查网络或 DNS
+> - `destination path already exists` → 这个目录已经有东西了。要么换个目录，
+>   要么先 `rm -rf /opt/arcade-queue` 再重来（**确认里面没有你要的东西**）
 
 进入目录：
 
