@@ -25,6 +25,10 @@ export interface Config {
   /** 可选：不配则只用 Open-Meteo（免 key）。 */
   qweatherKey: string;
   qweatherHost: string;
+  /** 日志文件路径。空则只输出到屏幕（screen 方式下建议配上）。 */
+  logFile: string;
+  /** 日志单文件大小上限（MB），超过则轮转，只保留一个历史文件。 */
+  logMaxMb: number;
 }
 
 function readEnv(name: string, fallback = ''): string {
@@ -58,6 +62,10 @@ export function loadConfig(): Config {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error(`PORT 无效：${readEnv('PORT')}`);
   }
+  const logMaxMb = Number(readEnv('LOG_MAX_MB', '10'));
+  if (!Number.isFinite(logMaxMb) || logMaxMb <= 0) {
+    throw new Error(`LOG_MAX_MB 无效：${readEnv('LOG_MAX_MB')}`);
+  }
   return {
     host: readEnv('HOST', '0.0.0.0'),
     port,
@@ -69,6 +77,8 @@ export function loadConfig(): Config {
     nearcadeToken: readEnv('NEARCADE_TOKEN'),
     qweatherKey: readEnv('QWEATHER_KEY'),
     qweatherHost: readEnv('QWEATHER_HOST', 'devapi.qweather.com'),
+    logFile: readEnv('LOG_FILE', './data/arcade-queue.log'),
+    logMaxMb: logMaxMb,
   };
 }
 

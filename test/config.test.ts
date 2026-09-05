@@ -19,6 +19,8 @@ function withEnv(vars: Record<string, string | undefined>, body: () => void): vo
     'NEARCADE_TOKEN',
     'QWEATHER_KEY',
     'QWEATHER_HOST',
+    'LOG_FILE',
+    'LOG_MAX_MB',
   ];
   const saved = new Map(keys.map((key) => [key, process.env[key]]));
   for (const key of keys) delete process.env[key];
@@ -47,6 +49,9 @@ function baseConfig(overrides: Partial<Config> = {}): Config {
     nearcadeToken: '',
     qweatherKey: '',
     qweatherHost: 'devapi.qweather.com',
+    // 测试里不写日志文件：只验配置体检逻辑，不该产生副作用文件。
+    logFile: '',
+    logMaxMb: 10,
     ...overrides,
   };
 }
@@ -143,4 +148,31 @@ test('auditConfig：本机监听不提示明文风险', () => {
 
 test('auditConfig：配置齐全且只听本机时零警告', () => {
   assert.deepEqual(auditConfig(baseConfig()), []);
+});
+
+test('loadConfig 读取日志配置并提供默认值', () => {
+  withEnv({}, () => {
+    const config = loadConfig();
+    assert.equal(config.logFile, './data/arcade-queue.log');
+    assert.equal(config.logMaxMb, 10);
+  });
+  withEnv({ LOG_FILE: '/var/log/arcade.log', LOG_MAX_MB: '50' }, () => {
+    const config = loadConfig();
+    assert.equal(config.logFile, '/var/log/arcade.log');
+    assert.equal(config.logMaxMb, 50);
+  });
+});
+
+test('LOG_FILE 可显式留空表示只输出到屏幕', () => {
+  withEnv({ LOG_FILE: '' }, () => {
+    assert.equal(loadConfig().logFile, '');
+  });
+});
+
+test('loadConfig 拒绝非法的 LOG_MAX_MB', () => {
+  for (const bad of ['0', '-5', 'abc']) {
+    withEnv({ LOG_MAX_MB: bad }, () => {
+      assert.throws(() => loadConfig(), /LOG_MAX_MB 无效/, `LOG_MAX_MB=${bad}`);
+    });
+  }
 });

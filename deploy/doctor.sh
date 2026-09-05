@@ -75,12 +75,38 @@ PORT="${PORT:-8787}"
 
 section "3. 本服务状态"
 
+# 两种运行方式都要认：screen（推荐，能随时看实时日志）和 systemd。
+RUNNING_VIA=""
+
+if command -v screen >/dev/null 2>&1 &&
+   screen -ls 2>/dev/null | grep "[.]arcade[[:space:]]" | grep -qvE "Dead|dead"; then
+  ok "screen 会话 'arcade' 正在运行（进去看：screen -r arcade）"
+  RUNNING_VIA="screen"
+fi
+
 if systemctl is-active --quiet arcade-queue 2>/dev/null; then
   ok "systemd 服务 arcade-queue 正在运行"
-elif systemctl list-unit-files 2>/dev/null | grep -q arcade-queue; then
-  bad "服务已安装但没在运行" "看原因：journalctl -u arcade-queue -n 50 --no-pager"
-else
-  warn "还没装成 systemd 服务" "见 DEPLOY.md 第 8 步（手动 node src/main.ts 也能跑，但关终端就停）"
+  if [ "$RUNNING_VIA" = "screen" ]; then
+    # 两个都在跑会争抢同一个端口和数据库，必须只留一个。
+    bad "screen 与 systemd 同时在跑" "两者会争端口与数据库文件。留一个：bash deploy/start-screen.sh stop 或 systemctl stop arcade-queue"
+  fi
+  RUNNING_VIA="systemd"
+fi
+
+if [ -z "$RUNNING_VIA" ]; then
+  if systemctl list-unit-files 2>/dev/null | grep -q arcade-queue; then
+    bad "systemd 服务已安装但没在运行" "看原因：journalctl -u arcade-queue -n 50 --no-pager"
+  else
+    warn "服务没在后台运行" "screen 方式：bash deploy/start-screen.sh start（见 DEPLOY.md 第 8 步）"
+  fi
+fi
+
+# 孤儿 socket 会让 start 误判「已经在跑」，提前提示。
+# 注意只看会话行（形如 "12345.arcade  (Dead)"），不要匹配 screen -ls 末尾那句
+# "Remove dead screens with 'screen -wipe'." 汇总提示，否则会误报。
+if command -v screen >/dev/null 2>&1 &&
+   screen -ls 2>/dev/null | grep -E "^[[:space:]]+[0-9]+\.arcade[[:space:]]" | grep -qE "Dead|dead"; then
+  warn "存在残留的 screen 会话记录" "执行 bash deploy/start-screen.sh start 会自动清理"
 fi
 
 HEALTH=$(curl -s -m 5 "http://127.0.0.1:${PORT}/health" 2>/dev/null || echo '')
@@ -95,6 +121,24 @@ if [ -f "${DB_PATH:-./data/arcade-queue.db}" ]; then
   ok "数据库文件存在（$DB_SIZE）"
 else
   warn "数据库文件还不存在" "服务首次启动时会自动创建，属正常"
+fi
+
+LOG_PATH="${LOG_FILE:-./data/arcade-queue.log}"
+if [ -n "$LOG_PATH" ] && [ -f "$LOG_PATH" ]; then
+  LOG_SIZE=$(du -h "$LOG_PATH" 2>/dev/null | cut -f1)
+  ok "日志文件存在（$LOG_SIZE）：tail -f $LOG_PATH"
+  LAST_LOG=$(tail -1 "$LOG_PATH" 2>/dev/null | cut -c1-70)
+  [ -n "$LAST_LOG" ] && printf '      最后一行：%s\n' "$LAST_LOG"
+elif [ -n "$LOG_PATH" ]; then
+  warn "日志文件还不存在（$LOG_PATH）" "服务启动后才会创建"
+fi
+
+# 磁盘快满会导致 SQLite 写不进去，整个服务瘫掉，值得提前预警
+DISK_USE=$(df -P . 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5}')
+if [ -n "$DISK_USE" ] && [ "$DISK_USE" -ge 90 ] 2>/dev/null; then
+  bad "磁盘已用 ${DISK_USE}%" "磁盘满会让数据库写入失败。清理空间，或调小 LOG_MAX_MB"
+elif [ -n "$DISK_USE" ] && [ "$DISK_USE" -ge 80 ] 2>/dev/null; then
+  warn "磁盘已用 ${DISK_USE}%" "留意空间，日志与数据库都在增长"
 fi
 
 section "4. NapCat 状态"

@@ -250,9 +250,100 @@ node src/main.ts
 
 ---
 
-## 第 8 步：装成后台服务（开机自启、崩溃自动重启）
+## 第 8 步：让它一直在后台跑
 
-刚才那样跑，一关终端就停了。要让它一直跑，得装成「系统服务」。
+刚才那样跑，一关终端就停了。要让它 24 小时在线，有两种办法，**选一个就行**。
+
+| | 方式 A：screen（推荐） | 方式 B：systemd |
+|---|---|---|
+| 看实时日志 | `screen -r arcade` 直接进去看，像在自己终端里跑 | `journalctl -u arcade-queue -f` |
+| 上手难度 | 简单，两条命令 | 要建专用账号、改权限 |
+| 崩溃自动重启 | 有（脚本里带守护循环） | 有 |
+| 开机自启 | 要额外执行一条 crontab 命令 | 自带 |
+
+如果你不确定选哪个，**用方式 A**。它的好处是出问题时能直接"进去看"，
+新手排查起来直观得多。
+
+---
+
+### 方式 A：screen（推荐）
+
+装 screen：
+
+```sh
+apt install -y screen
+```
+
+启动：
+
+```sh
+cd /opt/arcade-queue
+bash deploy/start-screen.sh start
+```
+
+**应该看到**：
+
+```
+已在 screen 会话 'arcade' 中启动。
+
+  健康检查通过：http://127.0.0.1:8787/health
+
+常用命令：
+  screen -r arcade        进去看实时日志
+  ...
+```
+
+看到「健康检查通过」就成功了。
+
+**怎么看实时日志**：
+
+```sh
+screen -r arcade
+```
+
+进去后你会看到服务的实时输出，就像在自己终端里跑一样。
+
+> ⚠️ **看完怎么出来**：按 `Ctrl+A`，松手，再按 `D`。
+> **千万别按 `Ctrl+C`** —— 那会把服务停掉。
+>
+> 记不住的话，用这个更安全的办法看日志（不用进 screen）：
+> ```sh
+> tail -f /opt/arcade-queue/data/arcade-queue.log
+> ```
+> 按 `Ctrl+C` 退出（这个是安全的，只是停止看日志）。
+
+**其他常用命令**：
+
+```sh
+bash deploy/start-screen.sh status   # 看在不在跑
+bash deploy/start-screen.sh stop     # 停止
+```
+
+**让服务器重启后自动拉起**（执行一次就行）：
+
+```sh
+(crontab -l 2>/dev/null; echo "@reboot cd /opt/arcade-queue && bash deploy/start-screen.sh start") | crontab -
+```
+
+检查有没有加上：
+
+```sh
+crontab -l
+```
+
+**应该看到**：一行以 `@reboot` 开头的内容。
+
+> **出错了？**
+> - `command not found: screen` → 上面的 `apt install -y screen` 没成功
+> - 显示「健康检查还没通过」→ 执行 `screen -r arcade` 进去看报什么错
+> - 说「会话已经在跑了」但服务其实没响应 → 先 `bash deploy/start-screen.sh stop`
+>   再 start（脚本会自动清理残留）
+
+---
+
+### 方式 B：systemd
+
+用系统自带的服务管理，好处是开机自启不用额外配。
 
 创建一个专用账号来跑它（比用 root 跑安全）：
 
@@ -308,7 +399,13 @@ journalctl -u arcade-queue -n 20 --no-pager
 
 **应该看到**：和第 7 步一样的「服务已启动」。
 
-自测一下：
+> **出错了？**
+> - `failed (Result: exit-code)` → 看 `journalctl -u arcade-queue -n 50 --no-pager` 的报错
+> - 报 `EACCES` / `permission denied` 且提到 data 目录 → 上面的 `chown` 没做，重做一次
+
+---
+
+### 两种方式都要做的：确认服务真的活着
 
 ```sh
 curl http://127.0.0.1:8787/health
@@ -317,11 +414,12 @@ curl http://127.0.0.1:8787/health
 **应该看到**：`{"ok":true}`
 
 > **出错了？**
-> - `failed (Result: exit-code)` → 看 `journalctl -u arcade-queue -n 50 --no-pager` 的报错
-> - 报 `EACCES` / `permission denied` 且提到 data 目录 → 上面的 `chown` 没做，重做一次
 > - `curl: command not found` → `apt install -y curl`
-
----
+> - `Connection refused` → 服务没起来。方式 A 用 `screen -r arcade` 看，
+>   方式 B 用 `journalctl -u arcade-queue -n 50 --no-pager` 看
+>
+> ⚠️ **别两种方式同时开**：它们会争抢同一个端口和数据库文件。
+> 只留一个（`bash deploy/start-screen.sh stop` 或 `systemctl stop arcade-queue`）。
 
 ## 第 9 步：开放防火墙端口
 
@@ -528,13 +626,22 @@ http://你的IP:8787/
 
 🎉 **成功了。** 到此部署完成。
 
-> **群里没反应？** 按顺序查这三步：
+> **群里没反应？**
+>
+> **最省事的办法：先跑一键体检**
+> ```sh
+> cd /opt/arcade-queue && bash deploy/doctor.sh
+> ```
+> 它会逐项检查并指出问题（含最容易搞错的「NapCat token 与 ONEBOT_SECRET
+> 不一致」）。有标 `X` 的先解决那些。
+>
+> 体检全过但还是没反应，按顺序查这三步：
 >
 > **① 本服务收到消息了吗**
 > ```sh
-> journalctl -u arcade-queue -f
+> tail -f /opt/arcade-queue/data/arcade-queue.log
 > ```
-> 然后在群里发一条消息。看有没有新日志。
+> 然后在群里发一条消息，看有没有新日志（按 `Ctrl+C` 退出查看）。
 > - **完全没动静** → NapCat 没把消息发过来。检查第 12 步的 URL 是否正好是
 >   `http://127.0.0.1:8787/onebot`，以及那条配置是否 **enable**。
 >   再看 NapCat 自己的日志：`docker logs napcat --tail 50`
@@ -552,38 +659,109 @@ http://你的IP:8787/
 
 ## 日常运维
 
+下面命令分两栏，按你第 8 步选的方式用对应的那一栏。
+
 ### 看日志
+
+**推荐（两种方式都能用）**：直接看日志文件
+
+```sh
+tail -f /opt/arcade-queue/data/arcade-queue.log
+```
+
+按 `Ctrl+C` 退出（安全，只是停止查看）。
+
+只想看最近 50 行：
+
+```sh
+tail -50 /opt/arcade-queue/data/arcade-queue.log
+```
+
+**screen 方式**：进去看实时输出
+
+```sh
+screen -r arcade
+```
+
+出来时按 `Ctrl+A` 再按 `D`（**别按 `Ctrl+C`，那会停掉服务**）。
+
+**systemd 方式**：
 
 ```sh
 journalctl -u arcade-queue -f
 ```
 
-（按 `Ctrl+C` 退出）
+> 日志文件超过 10MB 会自动轮转，旧的存成 `arcade-queue.log.1`，
+> 只保留一份历史，不会把磁盘写满。想改大小就在 `.env` 里设 `LOG_MAX_MB`。
 
 ### 重启服务
+
+screen 方式：
+
+```sh
+cd /opt/arcade-queue
+bash deploy/start-screen.sh stop && bash deploy/start-screen.sh start
+```
+
+systemd 方式：
 
 ```sh
 systemctl restart arcade-queue
 ```
+
+### 看服务在不在跑
+
+screen 方式：
+
+```sh
+cd /opt/arcade-queue && bash deploy/start-screen.sh status
+```
+
+systemd 方式：
+
+```sh
+systemctl status arcade-queue
+```
+
+**两种都能用的通用办法**：
+
+```sh
+curl http://127.0.0.1:8787/health
+```
+
+返回 `{"ok":true}` 就是活着。
+
+### 一键体检
+
+不确定哪里出问题时，跑这个，它会逐项检查并告诉你该改什么：
+
+```sh
+cd /opt/arcade-queue && bash deploy/doctor.sh
+```
+
+它会检查 Node 版本、密钥配置、服务状态、NapCat 上报配置（**包括最容易搞错的
+token 是否两边一致**）、磁盘空间等。
 
 ### 改配置后生效
 
 ```sh
 nano /opt/arcade-queue/.env
-systemctl restart arcade-queue
 ```
+
+改完按上面「重启服务」的命令重启。
 
 ### 备份数据
 
 所有数据就是一个文件。备份前先停服务，保证写完整：
 
 ```sh
-systemctl stop arcade-queue
-cp /opt/arcade-queue/data/arcade-queue.db /root/backup-$(date +%F).db
-systemctl start arcade-queue
+cd /opt/arcade-queue
+bash deploy/start-screen.sh stop      # systemd 方式用 systemctl stop arcade-queue
+cp data/arcade-queue.db /root/backup-$(date +%F).db
+bash deploy/start-screen.sh start     # systemd 方式用 systemctl start arcade-queue
 ```
 
-建议定期把 `/root/backup-*.db` 下载到自己电脑：
+建议定期把备份下载到自己电脑：
 
 ```sh
 # 在你自己电脑上执行
@@ -595,8 +773,9 @@ scp root@你的IP:/root/backup-*.db ./
 ```sh
 cd /opt/arcade-queue
 git pull
-systemctl restart arcade-queue
 ```
+
+然后按上面「重启服务」重启。
 
 ### QQ 掉线了
 
@@ -607,8 +786,6 @@ docker logs napcat --tail 30
 ```
 
 如果提示未登录，按第 11 步重新扫码。
-
----
 
 ## 全部指令一览
 
@@ -696,13 +873,15 @@ ssh -L 8787:127.0.0.1:8787 root@你的IP
 
 ## 附：所有配置项
 
-编辑 `/opt/arcade-queue/.env`，改完 `systemctl restart arcade-queue` 生效。
+编辑 `/opt/arcade-queue/.env`，改完按「日常运维 → 重启服务」重启才生效。
 
 | 配置项 | 默认 | 说明 |
 |---|---|---|
 | `HOST` | `0.0.0.0` | `0.0.0.0`=控制台公网可访问；`127.0.0.1`=仅本机 |
 | `PORT` | `8787` | 端口。改了记得同步改 NapCat 里的 URL 和防火墙 |
 | `DB_PATH` | `./data/arcade-queue.db` | 数据文件位置 |
+| `LOG_FILE` | `./data/arcade-queue.log` | 日志文件。留空则只输出到屏幕 |
+| `LOG_MAX_MB` | `10` | 日志超过这个大小就轮转，只保留一份历史 |
 | `CONSOLE_TOKEN` | 空 | 控制台密码。**空 = 控制台完全无法使用** |
 | `ONEBOT_SECRET` | 空 | 与 NapCat 对暗号用。必须两边一致 |
 | `NEARCADE_TOKEN` | 空 | 可选。同步人数到 Nearcade |
@@ -710,3 +889,7 @@ ssh -L 8787:127.0.0.1:8787 root@你的IP
 | `ONEBOT_API_BASE` | 空 | 可选。仅主动推送需要，一般不用填 |
 
 服务启动时会自我检查配置，有隐患会在日志里打 ⚠️ 提示。
+
+关于日志：程序**同时**往屏幕和 `LOG_FILE` 写。这样 screen 方式下既能
+`screen -r` 看实时输出，断开后也能用 `tail` 查历史。日志会按大小自动轮转，
+不会把磁盘写满。

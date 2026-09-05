@@ -79,18 +79,41 @@ echo "CONSOLE_TOKEN=$(openssl rand -hex 24)"
 
 启动时会自我体检，配置有隐患会打警告（比如公网监听却没配 `ONEBOT_SECRET`）。
 
-### 2. 装成 systemd 服务
+### 2. 让它后台常驻（两种任选）
+
+**screen（能随时 attach 看实时输出，脚本自带崩溃守护）**
+
+```sh
+apt install -y screen
+bash deploy/start-screen.sh start     # 启动
+bash deploy/start-screen.sh status    # 看状态
+bash deploy/start-screen.sh stop      # 停止
+screen -r arcade                      # 进去看实时日志（Ctrl+A 再 D 离开）
+
+# 开机自启（执行一次）
+(crontab -l 2>/dev/null; echo "@reboot cd /opt/arcade-queue && bash deploy/start-screen.sh start") | crontab -
+```
+
+脚本处理了 screen 方式的三个坑：崩溃后自动重启（守护循环）、死会话与孤儿
+socket 自动清理（否则会卡在「已经在跑了」但服务其实没有）、停止时先让 node
+优雅关库。
+
+**systemd**
 
 ```sh
 sudo cp deploy/arcade-queue.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now arcade-queue
-sudo systemctl status arcade-queue
 journalctl -u arcade-queue -f     # 看日志
 ```
 
 服务文件假定代码在 `/opt/arcade-queue`、以 `arcade` 用户运行。路径或用户不同就改
 `deploy/arcade-queue.service` 里对应几行。
+
+**别两种同时开** —— 会争抢端口和数据库文件（`deploy/doctor.sh` 会检测这种情况）。
+
+不管用哪种，日志都会同时写到 `LOG_FILE`（默认 `data/arcade-queue.log`），
+超过 `LOG_MAX_MB` 自动轮转，所以 `tail -f data/arcade-queue.log` 永远可用。
 
 ### 3. 装 NapCat 并登录你的 QQ
 
@@ -150,9 +173,18 @@ WebUI → 网络配置 → 新建 **HTTP 客户端**（httpClients）：
 
 ### 6. 验证
 
-群里发 `排卡列表`。没反应按顺序查：
+群里发 `排卡列表`。没反应先跑体检：
 
-1. `journalctl -u arcade-queue -f` 有没有收到请求
+```sh
+bash deploy/doctor.sh
+```
+
+它会检查 Node 版本、密钥、服务状态、NapCat 上报配置（含 token 是否两边一致）、
+磁盘空间，并对每个问题指出对应的处理办法。
+
+体检全过还是没反应，按顺序查：
+
+1. `tail -f data/arcade-queue.log` 有没有收到请求
    - 没有 → NapCat 的 URL 填错，或 NapCat 容器访问不到 127.0.0.1（检查 `--network host`）
    - 401 → `ONEBOT_SECRET` 两边不一致
 2. `curl http://127.0.0.1:8787/health` 应返回 `{"ok":true}`
@@ -260,4 +292,8 @@ npm start          # 本地起服务
 | `src/weather.ts` | 天气双供应商 + 降级 |
 | `public/index.html` | 控制台前端（单文件） |
 | `migrations/0001_init.sql` | 数据库 schema |
+| `src/logger.ts` | 日志：屏幕+文件双写、按大小轮转 |
+| `deploy/start-screen.sh` | screen 启动脚本（守护重启、清理残留会话） |
 | `deploy/arcade-queue.service` | systemd 单元文件 |
+| `deploy/doctor.sh` | 部署自检，定位常见配置错误 |
+| `deploy/napcat-onebot11.example.json` | NapCat 上报配置模板 |

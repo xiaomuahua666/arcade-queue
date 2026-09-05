@@ -6,26 +6,20 @@
 
 import { auditConfig, loadConfig, loadEnvFile } from './config.ts';
 import { openDatabase } from './db.ts';
+import { createLogger } from './logger.ts';
 import { createHttpServer } from './server.ts';
-
-function timestamp(): string {
-  // 日志一律北京时间（UTC+8），不用服务器本地时区——VPS 通常是 UTC，
-  // 打出来的时间要能直接和群里的消息对上。
-  const now = new Date(Date.now() + 8 * 3600 * 1000);
-  return now.toISOString().replace('T', ' ').slice(0, 19) + ' +08';
-}
-
-function log(message: string): void {
-  process.stdout.write(`[${timestamp()}] ${message}\n`);
-}
 
 loadEnvFile('.env');
 const config = loadConfig();
+
+// 同时写屏幕和文件：screen 里能实时看，断开后也能查历史。
+const log = createLogger({ filePath: config.logFile, maxBytes: config.logMaxMb * 1024 * 1024 });
 
 for (const warning of auditConfig(config)) log(`⚠️  ${warning}`);
 
 const db = openDatabase(config.dbPath);
 log(`数据库已就绪：${config.dbPath}`);
+if (config.logFile) log(`日志文件：${config.logFile}（超过 ${config.logMaxMb}MB 自动轮转）`);
 
 const server = createHttpServer({ config, db, log });
 

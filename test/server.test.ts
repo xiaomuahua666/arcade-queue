@@ -48,6 +48,9 @@ async function startServer(overrides: Partial<Config> = {}): Promise<Harness> {
     nearcadeToken: '',
     qweatherKey: '',
     qweatherHost: 'devapi.qweather.com',
+    // 测试不落日志文件：内存库 + 无副作用，跑完不留垃圾。
+    logFile: '',
+    logMaxMb: 10,
     ...overrides,
   };
   const db = createTestDb();
