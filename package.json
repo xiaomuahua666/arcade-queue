@@ -1,0 +1,19 @@
+{
+  "name": "arcade-queue",
+  "version": "0.1.0",
+  "private": true,
+  "description": "机厅排卡 QQ 机器人（OneBot v11 + node:sqlite，自托管）",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "test": "node --test \"test/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.5.4"
+  }
+}

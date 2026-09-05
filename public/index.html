@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>机厅排卡控制台</title>
+<meta name="robots" content="noindex" />
+<style>
+/* 色彩取自 Linear 设计体系（深色画布 + 四级表面阶梯 + 单一薰衣草蓝强调 + 发丝描边替代投影）。
+   刻意不套用它的营销版式：无全屏英雄区、无 80px 大标题——这是工具界面。 */
+:root{
+  --canvas:#010102; --s1:#0f1011; --s2:#141516; --s3:#18191a;
+  --ink:#f7f8f8; --ink-muted:#d0d6e0; --ink-subtle:#8a8f98;
+  --hairline:#23252a; --hairline-strong:#34343a;
+  --primary:#5e6ad2; --primary-hover:#828fff;
+  --success:#27a644; --danger:#d05e5e; --warn:#c79a3a;
+  --r:6px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--canvas);color:var(--ink);
+  font:14px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif;
+  letter-spacing:-0.05px;-webkit-font-smoothing:antialiased}
+header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:12px;
+  padding:10px 16px;background:rgba(1,1,2,.9);backdrop-filter:blur(8px);border-bottom:1px solid var(--hairline)}
+header h1{margin:0;font-size:14px;font-weight:600;letter-spacing:-0.2px}
+header .spacer{flex:1}
+main{max-width:1000px;margin:0 auto;padding:16px;display:grid;gap:14px}
+.panel{background:var(--s1);border:1px solid var(--hairline);border-radius:var(--r);padding:14px}
+.panel>h2{margin:0 0 10px;font-size:12px;font-weight:500;color:var(--ink-subtle);
+  text-transform:uppercase;letter-spacing:.4px}
+label{display:block;font-size:12px;color:var(--ink-subtle);margin-bottom:4px}
+input,textarea,select{width:100%;background:var(--s2);color:var(--ink);
+  border:1px solid var(--hairline-strong);border-radius:var(--r);padding:7px 9px;font:inherit}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--primary)}
+textarea{min-height:72px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
+.grid{display:grid;gap:10px}
+.grid.two{grid-template-columns:1fr 1fr}
+.grid.three{grid-template-columns:1fr 1fr 1fr}
+@media(max-width:640px){.grid.two,.grid.three{grid-template-columns:1fr}}
+button{font:inherit;cursor:pointer;border-radius:var(--r);padding:7px 14px;border:1px solid transparent}
+button.primary{background:var(--primary);color:#fff;font-weight:500}
+button.primary:hover{background:var(--primary-hover)}
+button.ghost{background:transparent;color:var(--ink-muted);border-color:var(--hairline-strong)}
+button.ghost:hover{border-color:var(--primary);color:var(--ink)}
+button.danger{background:transparent;color:var(--danger);border-color:var(--hairline-strong)}
+button.danger:hover{border-color:var(--danger)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.arcade{background:var(--s2);border:1px solid var(--hairline);border-radius:var(--r);padding:12px;margin-bottom:8px}
+.arcade .head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.arcade .head strong{font-size:15px;letter-spacing:-0.2px}
+.arcade .meta{color:var(--ink-subtle);font-size:12px}
+.count{font-size:22px;font-weight:600;letter-spacing:-0.6px}
+.tag{display:inline-block;padding:1px 7px;border-radius:99px;font-size:11px;
+  border:1px solid var(--hairline-strong);color:var(--ink-subtle)}
+.tag.stale{border-color:var(--warn);color:var(--warn)}
+.tag.fresh{border-color:var(--success);color:var(--success)}
+.empty{color:var(--ink-subtle);padding:18px;text-align:center}
+details{border-top:1px solid var(--hairline);margin-top:10px;padding-top:10px}
+details summary{cursor:pointer;color:var(--ink-subtle);font-size:12px}
+#toast{position:fixed;right:16px;bottom:16px;z-index:20;display:grid;gap:8px}
+.toast{background:var(--s3);border:1px solid var(--hairline-strong);border-radius:var(--r);
+  padding:9px 13px;font-size:13px;max-width:340px}
+.toast.err{border-color:var(--danger);color:#f0b8b8}
+.toast.ok{border-color:var(--success)}
+.hint{color:var(--ink-subtle);font-size:12px;margin-top:6px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--hairline)}
+th{color:var(--ink-subtle);font-weight:500}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--ink-muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>机厅排卡控制台</h1>
+  <span class="spacer"></span>
+  <span class="meta" id="who" style="color:var(--ink-subtle);font-size:12px"></span>
+  <button class="ghost" id="logout" hidden>退出</button>
+</header>
+
+<main>
+  <!-- 登录：密钥就是 Workers secret 里的 CONSOLE_TOKEN，存 sessionStorage（关标签即失效）。 -->
+  <section class="panel" id="loginPanel">
+    <h2>访问密钥</h2>
+    <label for="token">CONSOLE_TOKEN</label>
+    <input id="token" type="password" autocomplete="current-password" placeholder="wrangler secret put CONSOLE_TOKEN 设置的值" />
+    <div class="row" style="margin-top:10px">
+      <button class="primary" id="login">进入</button>
+      <span class="hint">密钥只存在本标签页会话中，不写 localStorage、不进 Cookie。</span>
+    </div>
+  </section>
+
+  <section class="panel" id="groupPanel" hidden>
+    <h2>群</h2>
+    <div class="grid two">
+      <div>
+        <label for="gid">QQ 群号</label>
+        <input id="gid" inputmode="numeric" placeholder="例如 123456789" />
+      </div>
+      <div>
+        <label>排卡开关</label>
+        <div class="row">
+          <button class="ghost" id="loadGroup">加载</button>
+          <button class="ghost" id="toggleEnabled" disabled>切换开关</button>
+          <span class="tag" id="enabledTag">未加载</span>
+        </div>
+      </div>
+    </div>
+    <p class="hint">就是真实的 QQ 群号（群设置里能看到）。每个群的机厅、别名与模板互相独立。</p>
+  </section>
+
+  <section class="panel" id="arcadePanel" hidden>
+    <h2>本群机厅</h2>
+    <div id="arcades"><div class="empty">尚未加载</div></div>
+    <details>
+      <summary>添加机厅</summary>
+      <div class="grid two" style="margin-top:10px">
+        <div><label for="n_name">名称（必填）</label><input id="n_name" /></div>
+        <div><label for="n_aliases">别名（逗号分隔）</label><input id="n_aliases" placeholder="wd, 万达广场" /></div>
+        <div><label for="n_machines">机台数</label><input id="n_machines" type="number" min="1" max="100" value="1" /></div>
+        <div><label for="n_notice">店铺通知</label><input id="n_notice" /></div>
+      </div>
+      <div class="grid three" style="margin-top:10px">
+        <div><label for="n_lat">纬度（查天气用）</label><input id="n_lat" type="number" step="0.0001" /></div>
+        <div><label for="n_lon">经度</label><input id="n_lon" type="number" step="0.0001" /></div>
+        <div>
+          <label for="n_search">从 Nearcade 搜店自动填</label>
+          <div class="row"><input id="n_search" placeholder="店名关键词" /><button class="ghost" id="doSearch">搜索</button></div>
+        </div>
+      </div>
+      <div id="searchResults"></div>
+      <div class="grid two" style="margin-top:10px">
+        <div><label for="n_shop">Nearcade 店铺 ID</label><input id="n_shop" type="number" min="1" /></div>
+        <div><label for="n_game">Nearcade 机种 ID（gameId）</label><input id="n_game" type="number" min="1" /></div>
+      </div>
+      <div style="margin-top:10px">
+        <label for="n_query">查询消息模板（留空用默认）</label>
+        <textarea id="n_query" placeholder="{displayName} 当前 {currentCount} 人，等待 {waitTime} 分钟"></textarea>
+        <p class="hint">可用占位符：{displayName} {currentCount} {machineCount} {waitTime} {updateTime} {minutesAgo} {noticeBlock} {nearcadeLink} {externalStatus} {diff} {trendDesc} {sampleCount}</p>
+      </div>
+      <div class="row" style="margin-top:10px"><button class="primary" id="createArcade">添加</button></div>
+    </details>
+  </section>
+
+  <section class="panel" id="helpPanel" hidden>
+    <h2>群内指令</h2>
+    <table>
+      <tr><th>指令</th><th>作用</th></tr>
+      <tr><td><code>&lt;别名&gt;几</code> / <code>&lt;别名&gt;j</code> / 裸别名</td><td>查当前人数与等待时间</td></tr>
+      <tr><td><code>&lt;别名&gt;5</code></td><td>把人数设为 5</td></tr>
+      <tr><td><code>&lt;别名&gt;+2</code> / <code>&lt;别名&gt;-1</code></td><td>增减人数</td></tr>
+      <tr><td><code>predict &lt;别名&gt;</code></td><td>等待预估与近 2 小时趋势</td></tr>
+      <tr><td><code>weather &lt;别名&gt;</code></td><td>机厅所在地天气（需先填经纬度）</td></tr>
+      <tr><td><code>排卡帮助</code> / <code>排卡列表</code></td><td>用法说明 / 本群机厅一览</td></tr>
+    </table>
+    <p class="hint">本版没有天气定时播报（那需要 Cron Triggers），天气改为群内按需查询。</p>
+    <p class="hint">机器人身份由你自己的 QQ 号（经 NapCat 等 OneBot 客户端登录）提供，不是 QQ 官方机器人。</p>
+  </section>
+</main>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+let token = '';
+let groupId = '';
+
+function toast(message, kind = '') {
+  const node = document.createElement('div');
+  node.className = 'toast ' + kind;
+  node.textContent = message;
+  $('toast').append(node);
+  setTimeout(() => node.remove(), 4200);
+}
+
+async function api(path, options = {}) {
+  const response = await fetch('/api' + path, {
+    ...options,
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json', ...(options.headers || {}) },
+  });
+  const text = await response.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+  if (!response.ok) throw new Error((data && data.error) || ('HTTP ' + response.status));
+  return data;
+}
+
+function setLoggedIn(on) {
+  $('loginPanel').hidden = on;
+  for (const id of ['groupPanel', 'arcadePanel', 'helpPanel']) $(id).hidden = !on;
+  $('logout').hidden = !on;
+  $('who').textContent = on ? '已通过密钥认证' : '';
+}
+
+$('login').onclick = async () => {
+  const value = $('token').value.trim();
+  if (!value) return toast('请填写密钥', 'err');
+  token = value;
+  try {
+    // 用一个无害的读请求探测密钥是否正确。
+    await api('/nearcade/search?q=%E6%B5%8B%E8%AF%95');
+    sessionStorage.setItem('arcade_token', token);
+    setLoggedIn(true);
+    toast('密钥有效', 'ok');
+  } catch (error) {
+    token = '';
+    toast('密钥无效或服务异常：' + error.message, 'err');
+  }
+};
+
+$('logout').onclick = () => {
+  token = '';
+  sessionStorage.removeItem('arcade_token');
+  setLoggedIn(false);
+};
+
+$('loadGroup').onclick = async () => {
+  groupId = $('gid').value.trim();
+  if (!groupId) return toast('请填写 QQ 群号', 'err');
+  if (!/^\d{5,15}$/.test(groupId)) return toast('群号应当是 5–15 位数字', 'err');
+  try {
+    const state = await api('/groups/' + encodeURIComponent(groupId) + '/enabled');
+    $('enabledTag').textContent = state.enabled ? '已启用' : '已关闭';
+    $('enabledTag').className = 'tag ' + (state.enabled ? 'fresh' : 'stale');
+    $('toggleEnabled').disabled = false;
+    localStorage.setItem('arcade_gid', groupId);
+    await loadArcades();
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+};
+
+$('toggleEnabled').onclick = async () => {
+  const next = $('enabledTag').textContent !== '已启用';
+  try {
+    const state = await api('/groups/' + encodeURIComponent(groupId) + '/enabled', {
+      method: 'POST',
+      body: JSON.stringify({ enabled: next }),
+    });
+    $('enabledTag').textContent = state.enabled ? '已启用' : '已关闭';
+    $('enabledTag').className = 'tag ' + (state.enabled ? 'fresh' : 'stale');
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+};
+
+function freshness(arcade) {
+  if (arcade.age_seconds === null) return '<span class="tag">尚未上报</span>';
+  const minutes = Math.floor(arcade.age_seconds / 60);
+  const label = minutes < 1 ? '刚刚上报' : minutes + ' 分钟前上报';
+  return '<span class="tag ' + (arcade.stale ? 'stale' : 'fresh') + '">' + label + '</span>';
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+async function loadArcades() {
+  const list = await api('/groups/' + encodeURIComponent(groupId) + '/arcades');
+  const container = $('arcades');
+  if (!list.length) {
+    container.innerHTML = '<div class="empty">本群还没有机厅，展开下方「添加机厅」新建。</div>';
+    return;
+  }
+  container.innerHTML = list.map((arcade) => `
+    <div class="arcade">
+      <div class="head">
+        <strong>${escapeHtml(arcade.name)}</strong>
+        <span class="meta">${escapeHtml(arcade.aliases.join('、')) || '无别名'} · ${arcade.machine_count} 台</span>
+        ${freshness(arcade)}
+      </div>
+      <div class="row" style="margin-top:8px">
+        <span class="count">${arcade.count}</span><span class="meta">人</span>
+        <input type="number" min="0" max="100000" value="${arcade.count}" style="width:90px" data-count="${escapeHtml(arcade.id)}" />
+        <button class="ghost" data-set="${escapeHtml(arcade.id)}">设为该人数</button>
+        <button class="danger" data-del="${escapeHtml(arcade.id)}">删除</button>
+      </div>
+      ${arcade.notice ? '<div class="meta" style="margin-top:6px">🪧 ' + escapeHtml(arcade.notice) + '</div>' : ''}
+      <div class="meta" style="margin-top:6px">
+        ${arcade.nearcade_shop_id ? 'Nearcade #' + arcade.nearcade_shop_id + ' / game ' + arcade.nearcade_game_id : '未关联 Nearcade'}
+        · ${arcade.latitude === null ? '未设坐标（不能查天气）' : arcade.latitude + ', ' + arcade.longitude}
+        · <code>${escapeHtml(arcade.id)}</code>
+      </div>
+    </div>`).join('');
+
+  container.querySelectorAll('[data-set]').forEach((button) => {
+    button.onclick = async () => {
+      const id = button.dataset.set;
+      const input = container.querySelector('[data-count="' + id + '"]');
+      try {
+        await api('/groups/' + encodeURIComponent(groupId) + '/arcades/' + encodeURIComponent(id) + '/report', {
+          method: 'POST',
+          body: JSON.stringify({ value: Number(input.value) }),
+        });
+        toast('已更新', 'ok');
+        await loadArcades();
+      } catch (error) { toast(error.message, 'err'); }
+    };
+  });
+  container.querySelectorAll('[data-del]').forEach((button) => {
+    button.onclick = async () => {
+      if (!confirm('删除该机厅？本群的别名与配置会一并移除。')) return;
+      try {
+        await api('/groups/' + encodeURIComponent(groupId) + '/arcades/' + encodeURIComponent(button.dataset.del), { method: 'DELETE' });
+        toast('已删除', 'ok');
+        await loadArcades();
+      } catch (error) { toast(error.message, 'err'); }
+    };
+  });
+}
+
+$('doSearch').onclick = async () => {
+  const keyword = $('n_search').value.trim();
+  if (keyword.length < 2) return toast('至少 2 个字符', 'err');
+  try {
+    const shops = await api('/nearcade/search?q=' + encodeURIComponent(keyword));
+    if (!shops.length) return toast('没搜到店铺');
+    $('searchResults').innerHTML = shops.map((shop, index) => `
+      <div class="arcade" style="margin-top:8px">
+        <div class="head"><strong>${escapeHtml(shop.name)}</strong><span class="meta">#${shop.id}</span></div>
+        <div class="meta">${escapeHtml(shop.address)}</div>
+        <div class="meta">${shop.games.map((g) => escapeHtml(g.name) + ' (game ' + g.game_id + ' ×' + g.quantity + ')').join('、') || '无机种信息'}</div>
+        <div class="row" style="margin-top:6px">
+          ${shop.games.map((g) => '<button class="ghost" data-fill="' + index + '" data-game="' + g.game_id + '" data-qty="' + g.quantity + '">用这个机种填表</button>').join('')}
+        </div>
+      </div>`).join('');
+    $('searchResults').querySelectorAll('[data-fill]').forEach((button) => {
+      button.onclick = () => {
+        const shop = shops[Number(button.dataset.fill)];
+        if (!$('n_name').value) $('n_name').value = shop.name;
+        $('n_shop').value = shop.id ?? '';
+        $('n_game').value = button.dataset.game;
+        if (Number(button.dataset.qty) > 0) $('n_machines').value = button.dataset.qty;
+        if (shop.latitude !== null) { $('n_lat').value = shop.latitude; $('n_lon').value = shop.longitude; }
+        toast('已填入表单', 'ok');
+      };
+    });
+  } catch (error) { toast(error.message, 'err'); }
+};
+
+$('createArcade').onclick = async () => {
+  if (!groupId) return toast('先加载一个群', 'err');
+  const numberOrNull = (id) => ($(id).value.trim() === '' ? null : Number($(id).value));
+  const body = {
+    name: $('n_name').value.trim(),
+    aliases: $('n_aliases').value.split(/[,，]/).map((s) => s.trim()).filter(Boolean),
+    machine_count: Number($('n_machines').value) || 1,
+    notice: $('n_notice').value,
+    latitude: numberOrNull('n_lat'),
+    longitude: numberOrNull('n_lon'),
+    nearcade_shop_id: numberOrNull('n_shop'),
+    nearcade_game_id: numberOrNull('n_game'),
+    query_template: $('n_query').value,
+  };
+  if (!body.name) return toast('名称必填', 'err');
+  try {
+    await api('/groups/' + encodeURIComponent(groupId) + '/arcades', { method: 'POST', body: JSON.stringify(body) });
+    toast('已添加', 'ok');
+    for (const id of ['n_name', 'n_aliases', 'n_notice', 'n_lat', 'n_lon', 'n_shop', 'n_game', 'n_query', 'n_search']) $(id).value = '';
+    $('searchResults').innerHTML = '';
+    await loadArcades();
+  } catch (error) { toast(error.message, 'err'); }
+};
+
+// 恢复上次的会话密钥与群，省去每次重填。
+const saved = sessionStorage.getItem('arcade_token');
+if (saved) { token = saved; setLoggedIn(true); }
+const savedGid = localStorage.getItem('arcade_gid');
+if (savedGid) $('gid').value = savedGid;
+</script>
+</body>
+</html>

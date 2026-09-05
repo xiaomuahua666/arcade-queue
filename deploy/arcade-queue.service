@@ -1,0 +1,60 @@
+# 机厅排卡服务 systemd 单元
+#
+# 安装：
+#   sudo cp deploy/arcade-queue.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now arcade-queue
+#
+# 路径或用户不同就改 User/Group/WorkingDirectory/ExecStart 四处。
+
+[Unit]
+Description=机厅排卡 QQ 机器人（OneBot v11）
+Documentation=https://github.com/botuniverse/onebot-11
+# 与 NapCat 无强依赖：本服务先起也没问题，NapCat 之后连上来即可。
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=arcade
+Group=arcade
+WorkingDirectory=/opt/arcade-queue
+
+# 密钥放 .env 并 chmod 600，不要写在本文件里（systemd 单元是全局可读的）。
+EnvironmentFile=/opt/arcade-queue/.env
+
+ExecStart=/usr/bin/node src/main.ts
+
+# 崩溃自动重启，但限制频率避免疯狂重启刷日志。
+Restart=always
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# SIGTERM 时服务会先停止接受新连接、关闭数据库（确保 WAL 落盘）再退出。
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=arcade-queue
+
+# 安全加固：只给它需要的权限。
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+# ProtectSystem=strict 会把整个文件系统挂成只读，
+# 这里显式放开数据目录，否则 SQLite 写不进去。
+ReadWritePaths=/opt/arcade-queue/data
+
+[Install]
+WantedBy=multi-user.target

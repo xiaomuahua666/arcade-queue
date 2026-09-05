@@ -1,0 +1,49 @@
+{
+  "_说明": [
+    "NapCat 的 OneBot11 配置模板。若不想在 WebUI 里点，可以直接用这个文件。",
+    "",
+    "用法：",
+    "  1. 把 token 换成你 .env 里的 ONEBOT_SECRET（必须完全一致）",
+    "  2. 把本文件复制成 /opt/napcat/config/onebot11_<你的QQ号>.json",
+    "     （文件名里的 QQ 号必须是你登录的那个号，NapCat 按号读配置）",
+    "  3. docker restart napcat",
+    "",
+    "字段依据 NapCat 源码 packages/napcat-onebot/config/config.ts，",
+    "删掉本节 _说明 也能正常工作（JSON 里多余的键会被忽略）。"
+  ],
+
+  "network": {
+    "httpClients": [
+      {
+        "name": "arcade-queue",
+        "enable": true,
+
+        "url": "http://127.0.0.1:8787/onebot",
+
+        "token": "把这里换成你的 ONEBOT_SECRET",
+
+        "messagePostFormat": "array",
+
+        "reportSelfMessage": false,
+
+        "debug": false
+      }
+    ],
+    "httpServers": [],
+    "httpSseServers": [],
+    "websocketServers": [],
+    "websocketClients": [],
+    "plugins": []
+  },
+
+  "musicSignUrl": "",
+  "enableLocalFile2Url": false,
+  "parseMultMsg": false,
+  "imageDownloadProxy": "",
+  "timeout": {
+    "baseTimeout": 10000,
+    "uploadSpeedKBps": 256,
+    "downloadSpeedKBps": 256,
+    "maxTimeout": 1800000
+  }
+}
