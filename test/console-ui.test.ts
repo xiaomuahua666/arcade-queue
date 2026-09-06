@@ -101,3 +101,95 @@ test('自动刷新日志在页面不可见时跳过（省流量与电量）', ()
 test('群号做了格式校验', () => {
   assert.match(script, /\/\^\\d\{5,15\}\$\//);
 });
+
+// ---------- 占位符 ----------
+
+/** 从 src/queue.ts 的 renderTemplate 里提取服务端真正支持的占位符名单。 */
+function serverPlaceholders(): Set<string> {
+  const source = readFileSync(join(import.meta.dirname, '../src/queue.ts'), 'utf8');
+  const start = source.indexOf('const values: Record<string, string | number> = {');
+  const block = source.slice(start, source.indexOf('\n  };', start));
+  // 同时匹配 `key: value` 与简写 `key,`（waitTime、notice 用的是简写）
+  return new Set([...block.matchAll(/^\s{4}([A-Za-z0-9_]+)\s*[,:]/gm)].map((m) => m[1]!));
+}
+
+/** 前端 PLACEHOLDERS 里列出的名单。 */
+function uiPlaceholders(): string[] {
+  return [...html.matchAll(/\{ key: '([A-Za-z0-9_]+)'/g)].map((m) => m[1]!);
+}
+
+test('前端列出的占位符全部被服务端支持', () => {
+  // 列了不支持的，用户点进去、发到群里会看到字面的 {xxx}，很难自己发现原因。
+  const server = serverPlaceholders();
+  const unsupported = uiPlaceholders().filter((key) => !server.has(key));
+  assert.deepEqual(unsupported, [], `这些占位符服务端不认：${unsupported.join(', ')}`);
+});
+
+test('占位符列表非空且含最常用的几个', () => {
+  const ui = uiPlaceholders();
+  assert.ok(ui.length >= 8, `至少该列出常用的那些，实际 ${ui.length} 个`);
+  for (const key of ['currentCount', 'freshness', 'updateTime', 'waitTime']) {
+    assert.ok(ui.includes(key), `缺少常用占位符 ${key}`);
+  }
+});
+
+test('每个占位符都有中文说明与示例值', () => {
+  const entries = [...html.matchAll(/\{ key: '([A-Za-z0-9_]+)', desc: '([^']*)', sample: '([^']*)' \}/g)];
+  assert.equal(entries.length, uiPlaceholders().length, '有占位符缺 desc 或 sample');
+  for (const [, key, desc, sample] of entries) {
+    assert.ok(desc!.length > 0, `${key} 没有说明`);
+    assert.ok(sample!.length > 0, `${key} 没有示例值`);
+  }
+});
+
+test('点占位符是插到光标处，不是追加到末尾', () => {
+  // 直接 value += 会让用户没法在中间插入，只能手动剪切粘贴。
+  assert.match(script, /function insertAtCursor/);
+  const insert = script.slice(script.indexOf('function insertAtCursor'), script.indexOf('function renderPlaceholders'));
+  assert.match(insert, /setRangeText/, '应当用 setRangeText 处理光标与选区');
+  assert.match(insert, /selectionStart/, '要读光标位置');
+  assert.match(insert, /selectionEnd/, '有选中内容时应当替换');
+});
+
+test('插入后会触发预览更新', () => {
+  const insert = script.slice(script.indexOf('function insertAtCursor'), script.indexOf('function renderPlaceholders'));
+  // 脚本改 value 不会自动触发 input 事件，必须手动派发，否则预览不动。
+  assert.match(insert, /dispatchEvent\(new Event\('input'/);
+});
+
+test('有模板实时预览，且未知占位符会给出警告', () => {
+  assert.match(script, /function renderPreview/);
+  const preview = script.slice(script.indexOf('function renderPreview'));
+  assert.match(preview, /这些名字不认识/, '拼错的占位符要提示，否则会原样发到群里');
+  // 预览行为要与服务端一致：连续空行压成一个
+  assert.match(preview, /\\n\{3,\}/);
+});
+
+// ---------- 移动端 ----------
+
+test('禁止双指缩放（工具界面已按屏宽适配，缩放只会看到错位界面）', () => {
+  const viewport = html.match(/<meta\s+name="viewport"[\s\S]*?\/>/)![0];
+  // iOS 从 10 起忽略 user-scalable 但尊重 maximum-scale；Android 相反。两个都要写。
+  assert.match(viewport, /maximum-scale=1/);
+  assert.match(viewport, /user-scalable=no/);
+  assert.match(viewport, /viewport-fit=cover/, '仍要处理刘海屏');
+});
+
+test('禁双击缩放', () => {
+  assert.match(html, /touch-action:manipulation/);
+});
+
+test('禁整页橡皮筋回弹（往下拽会露出空白）', () => {
+  assert.match(html, /overscroll-behavior:none/);
+});
+
+test('系统「更大字体」不会把界面撑变形', () => {
+  assert.match(html, /text-size-adjust:100%/);
+});
+
+test('界面文字默认不可选中，但可复制的内容开放选中', () => {
+  // 手机上长按界面文字容易触发选择而不是滚动。
+  assert.match(html, /body\{-webkit-user-select:none/);
+  // 群号、日志、机厅 id 这些是真要复制的
+  assert.match(html, /code,#logs,\.gnum,#gidText,input,textarea\{-webkit-user-select:text/);
+});
