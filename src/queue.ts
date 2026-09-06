@@ -53,10 +53,10 @@ export function normalize(value: unknown): string {
 }
 
 export const DEFAULT_QUERY_TEMPLATE =
-  '→ 🎉 目前人数：{currentCount} 人 {freshness}\n\n🎮 {displayName}\n\n机台数量：{machineCount} 台\n\n更新时间：{updateTime}\n\n{noticeBlock}\n\n⌛️ 现在出勤大约需要 {waitTime} 分钟才能上机\n\n{externalStatus}\n{nearcadeLink}';
+  '→ {currentCount} 人 {freshness}\n\n🕰 更新时间：{updateTime}\n\n⌛️ 大约需要 {waitTime} 分钟才能上机\n\n{noticeBlock}\n\n{externalStatus}';
 
 export const DEFAULT_REPORT_TEMPLATE =
-  '→ 🎉 目前人数：{currentCount} 人 {diff}\n\n🎮 {displayName}\n\n更新时间：{updateTime}\n\n⌛️ 现在出勤大约需要 {waitTime} 分钟才能上机\n\n{nearcadeSyncStatus}\n{nearcadeLink}';
+  '→ {currentCount} 人 {diff}\n\n🕰 更新时间：{updateTime}\n\n⌛️ 大约需要 {waitTime} 分钟才能上机\n\n{nearcadeSyncStatus}';
 
 export const DEFAULT_PREDICT_TEMPLATE =
   '→ 🔮 预测报告！\n\n🎮 {displayName}\n\n🎉 目前人数: {currentCount} 人\n\n⌛️ 预测等待: {waitTime} 分钟\n\n趋势: {trendDesc}\n\n样本数: {sampleCount}\n\n{forecastDisclaimer}\n\n更新时间: {updateTime}\n{nearcadeLink}';

@@ -67,13 +67,14 @@ test('群开关关掉后连帮助都不响应', async () => {
   }
 });
 
-test('排卡帮助用本群真实机厅名举例', async () => {
+test('排卡帮助用本群真实机厅的别名举例', async () => {
   const f = fixture();
   try {
     await f.store.createArcade(GROUP, { name: '万达', aliases: ['wd'] });
     const text = await f.say('排卡帮助');
-    assert.match(text!, /万达几/);
-    assert.match(text!, /predict 万达/);
+    // 举例用别名而非全名，见 shortestLabel()。
+    assert.match(text!, /wd几/);
+    assert.match(text!, /predict wd/);
   } finally {
     f.stub.restore();
   }
@@ -418,8 +419,8 @@ test('从未上报过时提示「还没有人上报」，而不是「超过 2 �
     // 从没人报过却说「数据已超过 2 小时」是错的说法。
     assert.doesNotMatch(text!, /超过 2 小时/);
     assert.match(text!, /还没有人上报/);
-    // 顺便给出可操作的下一步。
-    assert.match(text!, /万达5/);
+    // 顺便给出可操作的下一步（用别名举例，见 shortestLabel）。
+    assert.match(text!, /wd5/);
   } finally {
     f.stub.restore();
   }
@@ -447,6 +448,46 @@ test('刚上报过时既不提示陈旧也不提示未上报', async () => {
     const text = await f.say('万达几');
     assert.doesNotMatch(text!, /超过 2 小时/);
     assert.doesNotMatch(text!, /还没有人上报/);
+  } finally {
+    f.stub.restore();
+  }
+});
+
+test('提示语用最短别名举例，不用冗长的机厅全名', async () => {
+  const f = fixture();
+  try {
+    // 真实场景：机厅全名很长，别名很短。
+    await f.store.createArcade(GROUP, {
+      name: '焕游星际（上海临港万达店）',
+      aliases: ['焕游', 'hy'],
+      machine_count: 1,
+    });
+    const text = await f.say('hy几');
+    assert.match(text!, /发送「hy5」/, `应当用最短别名 hy：${text}`);
+    assert.doesNotMatch(text!, /焕游星际（上海临港万达店）5/, '不该把长全名拼进提示');
+  } finally {
+    f.stub.restore();
+  }
+});
+
+test('排卡帮助也用最短别名举例', async () => {
+  const f = fixture();
+  try {
+    await f.store.createArcade(GROUP, { name: '焕游星际（上海临港万达店）', aliases: ['焕游', 'hy'] });
+    const text = await f.say('排卡帮助');
+    assert.match(text!, /hy几/);
+    assert.doesNotMatch(text!, /焕游星际（上海临港万达店）几/);
+  } finally {
+    f.stub.restore();
+  }
+});
+
+test('没有别名时退回机厅全名，不至于无从举例', async () => {
+  const f = fixture();
+  try {
+    await f.store.createArcade(GROUP, { name: '万达', aliases: [] });
+    const text = await f.say('万达几');
+    assert.match(text!, /发送「万达5」/);
   } finally {
     f.stub.restore();
   }

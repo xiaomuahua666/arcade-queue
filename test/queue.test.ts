@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   DEFAULT_QUERY_TEMPLATE,
+  DEFAULT_REPORT_TEMPLATE,
   estimateWaitMinutes,
   formatBeijingTime,
   integer,
@@ -206,4 +207,69 @@ test('默认查询模板在从未上报时不产生残缺语句', () => {
   assert.doesNotMatch(text, /\(\s+分钟前\)/, `残缺文本：${text}`);
   assert.doesNotMatch(text, /\{[A-Za-z0-9_]+\}/, `残留占位符：${text}`);
   assert.match(text, /尚未上报/);
+});
+
+test('默认查询模板的完整输出（改版式会在这里变红）', () => {
+  const now = Date.UTC(2026, 8, 6, 4, 0, 0);
+  // 1 台机器 = 容量 2 人，0 人时等待 0 分钟；从未上报过。
+  const text = renderTemplate(DEFAULT_QUERY_TEMPLATE, arcade({ count: 0, machine_count: 1, updated_at: 0 }), { now });
+  assert.equal(
+    text,
+    ['→ 0 人 (尚未上报)', '', '🕰 更新时间：暂无', '', '⌛️ 大约需要 0 分钟才能上机'].join('\n'),
+  );
+});
+
+test('默认查询模板：有人上报后的完整输出', () => {
+  const now = Date.UTC(2026, 8, 6, 4, 0, 0);
+  const text = renderTemplate(
+    DEFAULT_QUERY_TEMPLATE,
+    arcade({ count: 5, machine_count: 1, updated_at: now - 3 * 60000 }),
+    { now },
+  );
+  assert.equal(
+    text,
+    [
+      '→ 5 人 (3 分钟前)',
+      '',
+      // 更新时间是「上报那一刻」，即 3 分钟前，不是当前时间。
+      '🕰 更新时间：2026-09-06 11:57:00',
+      '',
+      // 容量 2，排队 3 → ceil(3/2)=2 轮 → 34 分钟
+      '⌛️ 大约需要 34 分钟才能上机',
+    ].join('\n'),
+  );
+});
+
+test('默认上报模板的完整输出', () => {
+  const now = Date.UTC(2026, 8, 6, 4, 0, 0);
+  const text = renderTemplate(
+    DEFAULT_REPORT_TEMPLATE,
+    arcade({ count: 8, machine_count: 1, updated_at: now }),
+    { now, diff: '(+8)', status: '已同步 Nearcade。' },
+  );
+  assert.equal(
+    text,
+    [
+      '→ 8 人 (+8)',
+      '',
+      '🕰 更新时间：2026-09-06 12:00:00',
+      '',
+      // 1 台=容量 2，8 人 → 排队 6 → ceil(6/2)=3 轮 → 51 分钟
+      '⌛️ 大约需要 51 分钟才能上机',
+      '',
+      '已同步 Nearcade。',
+    ].join('\n'),
+  );
+});
+
+test('默认模板不再包含被移除的元素（机厅名/机台数/店铺链接）', () => {
+  const now = Date.UTC(2026, 8, 6, 4, 0, 0);
+  const full = arcade({ count: 3, machine_count: 4, updated_at: now, nearcade_shop_id: 17217 });
+  for (const template of [DEFAULT_QUERY_TEMPLATE, DEFAULT_REPORT_TEMPLATE]) {
+    const text = renderTemplate(template, full, { now });
+    // 机厅名在群里是多余的（大家发的就是机厅别名），机台数与链接同理。
+    assert.doesNotMatch(text, /万达/, `不该出现机厅名：${text}`);
+    assert.doesNotMatch(text, /台/, `不该出现机台数：${text}`);
+    assert.doesNotMatch(text, /nearcade\.cn/, `不该出现店铺链接：${text}`);
+  }
 });

@@ -352,7 +352,8 @@ test('/onebot 排卡帮助与列表可用', async () => {
   try {
     await h.store.createArcade(GROUP, { name: '万达', aliases: ['wd'] });
     const help = await report(h.url, groupMessage('排卡帮助', { message_id: 8001 }));
-    assert.match(((await help.json()) as { reply: string }).reply, /万达几/);
+    // 帮助里用别名举例（见 handler 的 shortestLabel）。
+    assert.match(((await help.json()) as { reply: string }).reply, /wd几/);
     const list = await report(h.url, groupMessage('排卡列表', { message_id: 8002 }));
     assert.match(((await list.json()) as { reply: string }).reply, /本群排卡机厅/);
   } finally {
@@ -449,8 +450,14 @@ test('管理 API：控制台改的数据群里立刻可见', async () => {
       method: 'POST',
       body: JSON.stringify({ name: '银泰', aliases: ['yt'], machine_count: 4 }),
     });
-    const response = await report(h.url, groupMessage('yt几'));
-    assert.match(((await response.json()) as { reply: string }).reply, /银泰/);
+    // 关键是「刚建的别名群里立刻能解析」——能拿到回复即证明这点。
+    // 不断言机厅名：默认模板已不输出它。
+    const reply = ((await (await report(h.url, groupMessage('yt几'))).json()) as { reply?: string }).reply;
+    assert.ok(reply, '控制台刚建的机厅，群里应当马上能查到');
+    assert.match(reply!, /0 人/);
+    // 再确认「排卡列表」里能看到它（列表仍会显示机厅名与别名）。
+    const list = await report(h.url, groupMessage('排卡列表', { message_id: 9101 }));
+    assert.match(((await list.json()) as { reply: string }).reply, /银泰（yt）：0 人 · 4 台/);
   } finally {
     await h.close();
   }

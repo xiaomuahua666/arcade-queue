@@ -34,12 +34,32 @@ export interface HandleContext {
 }
 
 /** 群里没配任何机厅时的引导语。 */
+/**
+ * 举例时用哪个叫法：挑最好打的那个别名，没有别名才退回机厅全名。
+ * 机厅全名常常很长（含括号、分店名），拼进提示语里很难读。
+ *
+ * 排序规则：纯 ASCII（如 wd、hy）优先于含中文的，其次才比长度。
+ * 因为字符数相同时，拼音缩写比中文更好打也更短——`hy` 比 `焕游` 更适合当例子。
+ */
+function shortestLabel(arcade: Arcade): string {
+  const candidates = arcade.aliases.map((alias) => alias.trim()).filter(Boolean);
+  if (!candidates.length) return arcade.name;
+  const rank = (value: string): [number, number] => [/^[\x20-\x7e]+$/.test(value) ? 0 : 1, value.length];
+  return candidates.reduce((best, current) => {
+    const [bestAscii, bestLen] = rank(best);
+    const [currentAscii, currentLen] = rank(current);
+    if (currentAscii !== bestAscii) return currentAscii < bestAscii ? current : best;
+    return currentLen < bestLen ? current : best;
+  });
+}
+
 function emptyGroupHint(): string {
   return '本群尚未配置机厅。管理员可在控制台添加机厅名称与别名后使用排卡。';
 }
 
 function helpText(arcades: Arcade[]): string {
-  const example = arcades.length ? arcades[0]!.name : '机厅别名';
+  // 同样用最短别名举例，否则帮助里每行都拖着一个长机厅名，六行看下来很累。
+  const example = arcades.length ? shortestLabel(arcades[0]!) : '机厅别名';
   return [
     '排卡使用指引：',
     `· 查人数：${example}几 / ${example}j / 直接发 ${example}`,
@@ -118,7 +138,11 @@ export async function handleGroupMessage(context: HandleContext): Promise<string
       // 从没人报过还提示「已超过 2 小时」是错的（端到端跑真服务时发现）。
       // age_seconds === null 正是「从未上报」的判据。
       if (external === null && arcade.age_seconds === null) {
-        status = (status ? status + '\n' : '') + 'ℹ️ 本群还没有人上报过人数，发送「' + arcade.name + '5」即可上报。';
+        // 举例用最短的别名，不用机厅全名——全名可能很长（如「焕游星际（上海临港万达店）」），
+        // 拼进提示里又长又难读，而群友日常本来就是打别名。
+        status =
+          (status ? status + '\n' : '') +
+          'ℹ️ 本群还没有人上报过人数，发送「' + shortestLabel(arcade) + '5」即可上报。';
       } else if (external === null && arcade.stale) {
         status = (status ? status + '\n' : '') + '⚠️ 本群上报数据已超过 2 小时，可能不准确。';
       }
