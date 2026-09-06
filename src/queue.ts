@@ -60,10 +60,10 @@ export function normalize(value: unknown): string {
  * 但对维护者排查有用——两种受众不该共用一个出口。
  */
 export const DEFAULT_QUERY_TEMPLATE =
-  '→ {currentCount} 人 {freshness}\n\n🕰 更新时间：{updateTime}\n\n⌛️ 大约需要 {waitTime} 分钟才能上机';
+  '→ {currentCount} 人 {freshness}\n更新时间：{updateTime}\n大约需要 {waitTime} 分钟才能上机';
 
 export const DEFAULT_REPORT_TEMPLATE =
-  '→ {currentCount} 人 {diff}\n\n🕰 更新时间：{updateTime}\n\n⌛️ 大约需要 {waitTime} 分钟才能上机';
+  '→ {currentCount} 人 {diff}\n更新时间：{updateTime}\n大约需要 {waitTime} 分钟才能上机';
 
 export const DEFAULT_PREDICT_TEMPLATE =
   '→ 🔮 预测报告！\n\n🎮 {displayName}\n\n🎉 目前人数: {currentCount} 人\n\n⌛️ 预测等待: {waitTime} 分钟\n\n趋势: {trendDesc}\n\n样本数: {sampleCount}\n\n{forecastDisclaimer}\n\n更新时间: {updateTime}\n{nearcadeLink}';
@@ -192,6 +192,15 @@ export function renderTemplate(template: string, arcade: Arcade, options: Render
   const rendered = String(template || '').replace(/\{([A-Za-z0-9_]+)\}/g, (match, key: string) =>
     key in values ? String(values[key]) : match,
   );
-  // 空占位符会留下连续空行，压掉多余的。
-  return rendered.replace(/\n{3,}/g, '\n\n').trim();
+  return (
+    rendered
+      // 占位符渲染成空串时会留下尾随空格（如 {diff} 无变化时的「→ 3 人 」），
+      // 也可能留下整行空白。逐行清理行尾，比只在最后 trim 一次干净。
+      .split('\n')
+      .map((line) => line.replace(/[ \t]+$/, ''))
+      .join('\n')
+      // 空占位符独占一行时会留下空行，压掉多余的。
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  );
 }

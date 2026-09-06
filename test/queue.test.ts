@@ -217,7 +217,7 @@ test('默认查询模板的完整输出（改版式会在这里变红）', () =>
   const text = renderTemplate(DEFAULT_QUERY_TEMPLATE, arcade({ count: 0, machine_count: 1, updated_at: 0 }), { now });
   assert.equal(
     text,
-    ['→ 0 人 (尚未上报)', '', '🕰 更新时间：暂无', '', '⌛️ 大约需要 0 分钟才能上机'].join('\n'),
+    ['→ 0 人 (尚未上报)', '更新时间：暂无', '大约需要 0 分钟才能上机'].join('\n'),
   );
 });
 
@@ -232,12 +232,10 @@ test('默认查询模板：有人上报后的完整输出', () => {
     text,
     [
       '→ 5 人 (3 分钟前)',
-      '',
       // 更新时间是「上报那一刻」，即 3 分钟前，不是当前时间。
-      '🕰 更新时间：2026-09-06 11:57:00',
-      '',
+      '更新时间：2026-09-06 11:57:00',
       // 容量 2，排队 3 → ceil(3/2)=2 轮 → 34 分钟
-      '⌛️ 大约需要 34 分钟才能上机',
+      '大约需要 34 分钟才能上机',
     ].join('\n'),
   );
 });
@@ -253,11 +251,9 @@ test('默认上报模板的完整输出', () => {
     text,
     [
       '→ 8 人 (+8)',
-      '',
-      '🕰 更新时间：2026-09-06 12:00:00',
-      '',
+      '更新时间：2026-09-06 12:00:00',
       // 1 台=容量 2，8 人 → 排队 6 → ceil(6/2)=3 轮 → 51 分钟
-      '⌛️ 大约需要 51 分钟才能上机',
+      '大约需要 51 分钟才能上机',
       // 同步状态不进群消息（记入运行日志），所以这里到此结束。
     ].join('\n'),
   );
@@ -272,5 +268,37 @@ test('默认模板不再包含被移除的元素（机厅名/机台数/店铺链
     assert.doesNotMatch(text, /万达/, `不该出现机厅名：${text}`);
     assert.doesNotMatch(text, /台/, `不该出现机台数：${text}`);
     assert.doesNotMatch(text, /nearcade\.cn/, `不该出现店铺链接：${text}`);
+  }
+});
+
+test('默认模板不含 emoji（用户明确要求纯文字）', () => {
+  for (const template of [DEFAULT_QUERY_TEMPLATE, DEFAULT_REPORT_TEMPLATE]) {
+    // 覆盖常见 emoji 区段与变体选择符
+    assert.doesNotMatch(template, /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u, `含 emoji：${template}`);
+  }
+});
+
+test('默认模板用单换行，不留空行', () => {
+  for (const template of [DEFAULT_QUERY_TEMPLATE, DEFAULT_REPORT_TEMPLATE]) {
+    assert.doesNotMatch(template, /\n\n/, `含空行：${JSON.stringify(template)}`);
+    assert.equal(template.split('\n').length, 3, '应当正好三行');
+  }
+});
+
+test('人数没变时第一行不留尾随空格（{diff} 渲染为空串）', () => {
+  const now = Date.UTC(2026, 8, 6, 4, 0, 0);
+  // diff 不传 = 人数没变，占位符会渲染成空串
+  const text = renderTemplate(DEFAULT_REPORT_TEMPLATE, arcade({ count: 3, updated_at: now }), { now });
+  const lines = text.split('\n');
+  assert.equal(lines[0], '→ 3 人', `不该留尾随空格：${JSON.stringify(lines[0])}`);
+  assert.equal(lines.length, 3);
+});
+
+test('渲染结果任何一行都不带尾随空格', () => {
+  const now = Date.UTC(2026, 8, 6, 4, 0, 0);
+  // 故意让多个占位符为空
+  const text = renderTemplate('{diff} \n{notice} \n{currentCount} 人\t', arcade({ count: 1, updated_at: now }), { now });
+  for (const line of text.split('\n')) {
+    assert.doesNotMatch(line, /[ \t]+$/, `有尾随空白：${JSON.stringify(line)}`);
   }
 });

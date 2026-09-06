@@ -572,8 +572,10 @@ test('群消息永远只有那三行，任何情况都不多', async () => {
     const lines = text!.split('\n').filter((line) => line.trim());
     assert.equal(lines.length, 3, `应当只有三行，实际：${JSON.stringify(text)}`);
     assert.match(lines[0]!, /^→ \d+ 人 \(/);
-    assert.match(lines[1]!, /^🕰 更新时间：/);
-    assert.match(lines[2]!, /^⌛️ 大约需要 \d+ 分钟才能上机$/);
+    assert.match(lines[1]!, /^更新时间：/);
+    assert.match(lines[2]!, /^大约需要 \d+ 分钟才能上机$/);
+    // 用户明确要求不要 emoji
+    assert.doesNotMatch(text!, /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u, `含 emoji：${text}`);
 
     // 店铺通知也不进群消息（用户明确要求「顶天就这些」）
     assert.doesNotMatch(text!, /扶梯/);
