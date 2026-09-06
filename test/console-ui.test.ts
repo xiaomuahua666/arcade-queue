@@ -199,9 +199,43 @@ test('全局允许任意位置断行', () => {
   assert.match(html, /body\{[^}]*overflow-wrap:anywhere/);
 });
 
-test('兜底禁止整页横向滚动', () => {
-  assert.match(html, /html\{overflow-x:hidden\}/);
-  assert.match(html, /body\{overflow-x:hidden/);
+/**
+ * 取出 <style> 里的真实 CSS，剥掉注释。
+ *
+ * 直接对整个 HTML 做断言会被注释文字误伤——本文件的注释里就写着
+ * 「曾经用过 overscroll-behavior」之类的说明，那不是生效的样式。
+ */
+function styleRules(): string {
+  const style = html.slice(html.indexOf('<style>') + 7, html.indexOf('</style>'));
+  return style.replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
+test('不得破坏页面纵向滚动', () => {
+  const css = styleRules();
+  // 实际反馈：加了 overscroll-behavior-y:none 后「必须双指才能往下滑」。
+  // 那个属性本意是禁橡皮筋回弹，但在部分浏览器里会把正常滚动手势一起吞掉。
+  // 橡皮筋只是观感问题，不值得拿滚动能力去换。
+  assert.doesNotMatch(css, /overscroll-behavior/, '不该用 overscroll-behavior');
+  // 给 html 设 overflow 会在 iOS Safari 上改变滚动容器行为，导致页面滚不动。
+  assert.doesNotMatch(css, /html\s*\{[^}]*overflow/, 'html 上不该设 overflow');
+  // touch-action:manipulation 会连带禁掉双击缩放，之前也因此被移除
+  assert.doesNotMatch(css, /touch-action:\s*manipulation/);
+});
+
+test('防横向溢出只靠换行，不靠隐藏溢出', () => {
+  const css = styleRules();
+  // 内容本身不溢出就不需要 overflow:hidden 去掩盖；
+  // 而且 hidden 会把真的超出的内容裁掉，让人看不见反而更难排查。
+  assert.match(css, /body\{overflow-wrap:anywhere/, '靠换行解决');
+  const arcadeRule = css.match(/\.arcade\{[^}]*\}/)![0];
+  assert.doesNotMatch(arcadeRule, /overflow:hidden/, '机厅卡片不该裁内容');
+  assert.match(arcadeRule, /max-width:100%/, '限宽即可');
+});
+
+test('抽屉内的群列表仍可独立滚动', () => {
+  // 群多了要能在抽屉里滑动，这个 overflow-y 是必要的（作用在局部容器上，
+  // 不影响整页滚动）。
+  assert.match(html, /#groupList\{[^}]*overflow-y:auto/);
 });
 
 test('flex 与 grid 子项放开最小宽度限制', () => {
