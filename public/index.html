@@ -142,6 +142,24 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;colo
     </details>
   </section>
 
+  <!-- 运行日志：群消息只保留人数三行，外部故障/同步结果等都在这里看。 -->
+  <section class="panel" id="logPanel" hidden>
+    <h2>运行日志</h2>
+    <div class="row" style="margin-bottom:10px">
+      <button class="ghost" id="reloadLogs">刷新</button>
+      <label style="min-width:auto;display:flex;align-items:center;gap:6px;margin:0">
+        <input type="checkbox" id="autoLogs" style="width:auto" checked /> 每 10 秒自动刷新
+      </label>
+      <span class="hint" id="logCount"></span>
+    </div>
+    <div id="logs"><div class="empty">尚未加载</div></div>
+    <p class="hint">
+      这里记录 Nearcade 读写结果、数据陈旧、指令出错等情况 —— 它们**不会**发到群里，
+      群消息只有人数那三行。保留最近 500 条。进程级日志（启动、崩溃）在服务器上看
+      <code>data/arcade-queue.log</code>。
+    </p>
+  </section>
+
   <section class="panel" id="helpPanel" hidden>
     <h2>群内指令</h2>
     <table>
@@ -188,7 +206,7 @@ async function api(path, options = {}) {
 
 function setLoggedIn(on) {
   $('loginPanel').hidden = on;
-  for (const id of ['groupPanel', 'arcadePanel', 'helpPanel']) $(id).hidden = !on;
+  for (const id of ['groupPanel', 'arcadePanel', 'logPanel', 'helpPanel']) $(id).hidden = !on;
   $('logout').hidden = !on;
   $('who').textContent = on ? '已通过密钥认证' : '';
 }
@@ -226,6 +244,7 @@ $('loadGroup').onclick = async () => {
     $('toggleEnabled').disabled = false;
     localStorage.setItem('arcade_gid', groupId);
     await loadArcades();
+    await loadLogs();
   } catch (error) {
     toast(error.message, 'err');
   }
@@ -363,11 +382,104 @@ $('createArcade').onclick = async () => {
   } catch (error) { toast(error.message, 'err'); }
 };
 
-// 恢复上次的会话密钥与群，省去每次重填。
-const saved = sessionStorage.getItem('arcade_token');
-if (saved) { token = saved; setLoggedIn(true); }
-const savedGid = localStorage.getItem('arcade_gid');
-if (savedGid) $('gid').value = savedGid;
+// ---------- 运行日志 ----------
+
+const LEVEL_STYLE = {
+  error: { color: 'var(--danger)', icon: '✖' },
+  warn: { color: 'var(--warn)', icon: '!' },
+  info: { color: 'var(--ink-subtle)', icon: '·' },
+};
+
+function formatLogTime(epochMs) {
+  // 服务端存的是 epoch 毫秒；这里按浏览器本地时区显示。
+  const d = new Date(epochMs);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+async function loadLogs() {
+  if (!groupId) return;
+  try {
+    const rows = await api('/groups/' + encodeURIComponent(groupId) + '/events?limit=200');
+    const box = $('logs');
+    $('logCount').textContent = rows.length ? `共 ${rows.length} 条` : '';
+    if (!rows.length) {
+      box.innerHTML = '<div class="empty">暂无记录。群里查一次人数就会产生日志。</div>';
+      return;
+    }
+    box.innerHTML =
+      '<div class="table-wrap"><table><tr><th style="width:90px">时间</th><th style="width:30px"></th>' +
+      '<th style="width:110px">类别</th><th>内容</th></tr>' +
+      rows.map((row) => {
+        const style = LEVEL_STYLE[row.level] || LEVEL_STYLE.info;
+        return `<tr>
+          <td style="color:var(--ink-subtle);white-space:nowrap">${formatLogTime(row.created_at)}</td>
+          <td style="color:${style.color};text-align:center">${style.icon}</td>
+          <td style="color:var(--ink-subtle)"><code>${escapeHtml(row.kind)}</code></td>
+          <td>${row.arcade ? '<span class="tag">' + escapeHtml(row.arcade) + '</span> ' : ''}${escapeHtml(row.message)}</td>
+        </tr>`;
+      }).join('') +
+      '</table></div>';
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+}
+
+$('reloadLogs').onclick = loadLogs;
+
+// 自动刷新：默认开着，10 秒一次。只在勾选且已加载群时才发请求。
+let logTimer = null;
+function syncLogTimer() {
+  if (logTimer) { clearInterval(logTimer); logTimer = null; }
+  if ($('autoLogs').checked) logTimer = setInterval(() => { if (groupId) loadLogs(); }, 10000);
+}
+$('autoLogs').onchange = syncLogTimer;
+syncLogTimer();
+
+// ---------- 会话恢复 ----------
+
+/**
+ * 刷新页面后自动回到上次的状态。
+ *
+ * 早先只把群号填回输入框、不自动加载，结果每次刷新都得再点一次「加载」
+ * 才能看到机厅列表（用户反馈的问题）。现在密钥有效且记得群号时，
+ * 直接把机厅与日志一起拉出来。
+ */
+async function restoreSession() {
+  const savedToken = sessionStorage.getItem('arcade_token');
+  const savedGid = localStorage.getItem('arcade_gid');
+  if (savedGid) $('gid').value = savedGid;
+  if (!savedToken) return;
+
+  token = savedToken;
+  try {
+    // 先确认密钥仍然有效——密钥可能已在服务端改过。
+    await api('/nearcade/search?q=%E6%B5%8B%E8%AF%95');
+  } catch {
+    // 失效就清掉，让用户重新输入，而不是留在「看起来已登录但什么都点不动」的状态。
+    token = '';
+    sessionStorage.removeItem('arcade_token');
+    setLoggedIn(false);
+    toast('登录已失效，请重新输入密钥', 'err');
+    return;
+  }
+  setLoggedIn(true);
+  if (!savedGid) return;
+
+  groupId = savedGid;
+  try {
+    const state = await api('/groups/' + encodeURIComponent(groupId) + '/enabled');
+    $('enabledTag').textContent = state.enabled ? '已启用' : '已关闭';
+    $('enabledTag').className = 'tag ' + (state.enabled ? 'fresh' : 'stale');
+    $('toggleEnabled').disabled = false;
+    await loadArcades();
+    await loadLogs();
+  } catch (error) {
+    toast('自动加载上次的群失败：' + error.message, 'err');
+  }
+}
+
+restoreSession();
 </script>
 </body>
 </html>

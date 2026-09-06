@@ -106,10 +106,24 @@ export async function handleGroupMessage(context: HandleContext): Promise<string
 
   try {
     if (parsed.action === 'weather') {
-      return await arcadeWeather(arcade, {
-        qweatherKey: config.qweatherKey,
-        qweatherHost: config.qweatherHost,
-      });
+      try {
+        return await arcadeWeather(arcade, {
+          qweatherKey: config.qweatherKey,
+          qweatherHost: config.qweatherHost,
+        });
+      } catch (error) {
+        // 「没填经纬度」是用户能自己解决的，照旧告诉他；
+        // 其他失败（两家供应商都挂）只记日志，群里给通用提示。
+        if (error instanceof Error && error.message.includes('经纬度')) throw error;
+        await store.logEvent({
+          groupId,
+          arcade: arcade.name,
+          level: 'warn',
+          kind: 'weather',
+          message: `查天气失败：${error instanceof Error ? error.message : String(error)}`,
+        });
+        return '天气服务暂不可用，请稍后再试。';
+      }
     }
 
     if (parsed.action === 'predict') {
@@ -121,34 +135,54 @@ export async function handleGroupMessage(context: HandleContext): Promise<string
     }
 
     if (isQuerySuffix(parsed.suffix)) {
-      // 查询：优先展示 Nearcade 的实时数据，失败则退回本地并明确告知。
+      // 查询：优先展示 Nearcade 的实时数据，失败则退回本地。
       // 注意用 ?? 而不是 ||：Nearcade 返回 0（真的没人）不能被当成缺数据。
+      //
+      // 所有异常情况只记进运行日志、不进群消息——群里只该有那三行人数信息。
+      // 维护者在控制台的「运行日志」里看。
       let external: number | null = null;
-      let status = '';
       try {
         external = await fetchAttendance(arcade.nearcade_shop_id, arcade.nearcade_game_id);
-      } catch {
-        // bot 版这里赋了值却忘了拼进最终文本，用户对外部故障无感知。本版修掉。
-        status = '⚠️ Nearcade 暂不可用，以下为本群上报数据。';
+      } catch (error) {
+        await store.logEvent({
+          groupId,
+          arcade: arcade.name,
+          level: 'warn',
+          kind: 'nearcade.read',
+          message: `读取 Nearcade 人数失败，已用本群上报数据：${error instanceof Error ? error.message : String(error)}`,
+        });
       }
-      if (external === null && !status && arcade.nearcade_shop_id && arcade.nearcade_game_id) {
-        status = 'ℹ️ Nearcade 暂无该机种数据，以下为本群上报数据。';
+      if (external === null && arcade.nearcade_shop_id && arcade.nearcade_game_id) {
+        await store.logEvent({
+          groupId,
+          arcade: arcade.name,
+          level: 'info',
+          kind: 'nearcade.read',
+          message: `Nearcade 没有该机种（gameId=${arcade.nearcade_game_id}）的人数数据，已用本群上报数据`,
+        });
       }
-      // stale 对「从未上报」和「上报过但陈旧」都为 true，但这两种情况要分开说：
-      // 从没人报过还提示「已超过 2 小时」是错的（端到端跑真服务时发现）。
-      // age_seconds === null 正是「从未上报」的判据。
+      // stale 对「从未上报」和「上报过但陈旧」都为 true，两种情况分开记：
+      // 从没人报过时说「已超过 2 小时」是错的说法。
       if (external === null && arcade.age_seconds === null) {
-        // 举例用最短的别名，不用机厅全名——全名可能很长（如「焕游星际（上海临港万达店）」），
-        // 拼进提示里又长又难读，而群友日常本来就是打别名。
-        status =
-          (status ? status + '\n' : '') +
-          'ℹ️ 本群还没有人上报过人数，发送「' + shortestLabel(arcade) + '5」即可上报。';
+        await store.logEvent({
+          groupId,
+          arcade: arcade.name,
+          level: 'info',
+          kind: 'stale',
+          message: `本群还没有人上报过该机厅人数（可在群里发「${shortestLabel(arcade)}5」上报）`,
+        });
       } else if (external === null && arcade.stale) {
-        status = (status ? status + '\n' : '') + '⚠️ 本群上报数据已超过 2 小时，可能不准确。';
+        const hours = arcade.age_seconds === null ? 0 : Math.floor(arcade.age_seconds / 3600);
+        await store.logEvent({
+          groupId,
+          arcade: arcade.name,
+          level: 'warn',
+          kind: 'stale',
+          message: `本群上报数据已陈旧（约 ${hours} 小时前），显示的人数可能不准`,
+        });
       }
       return renderTemplate(arcade.query_template || DEFAULT_QUERY_TEMPLATE, arcade, {
         currentCount: external ?? arcade.count,
-        status,
       });
     }
 
@@ -166,17 +200,33 @@ export async function handleGroupMessage(context: HandleContext): Promise<string
       updated.count,
       String(config.nearcadeToken ?? ''),
     );
+    // 同步结果只记日志，不进群消息。「未配置 Token」「同步未确认」这类信息
+    // 群友看不懂也管不了，但维护者需要知道。
+    await store.logEvent({
+      groupId,
+      arcade: updated.name,
+      level: outcome.status === 'unconfirmed' ? 'warn' : 'info',
+      kind: 'nearcade.write',
+      message: `上报 ${updated.count} 人：${describeReportOutcome(outcome)}`,
+    });
     const diff = updated.count - before;
     return renderTemplate(updated.report_template || DEFAULT_REPORT_TEMPLATE, updated, {
       diff: diff ? `(${diff > 0 ? '+' : ''}${diff})` : '',
-      status: describeReportOutcome(outcome),
     });
   } catch (error) {
-    // 校验类错误把原因告诉用户；其他错误只给通用提示，不泄露内部细节。
+    // 校验类错误把原因告诉用户（是他输入的问题，他能改）。
     if (error instanceof ValidationError || error instanceof NotFoundError || error instanceof RangeError) {
       return String(error.message);
     }
     if (error instanceof Error && error.message.includes('经纬度')) return error.message;
+    // 其他错误：群里只给一句通用提示，细节进运行日志供排查。
+    await store.logEvent({
+      groupId,
+      arcade: arcade.name,
+      level: 'error',
+      kind: 'command',
+      message: `处理「${text}」时出错：${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+    });
     return '排卡服务暂不可用，请稍后再试。';
   }
 }

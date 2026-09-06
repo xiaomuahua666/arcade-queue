@@ -208,6 +208,13 @@ async function handleApiRequest(
     if (segments[1] !== 'groups' || !segments[2]) return jsonReply({ error: '未知接口' }, 404);
     const groupId = decodeURIComponent(segments[2]);
 
+    // GET /api/groups/<gid>/events?limit=N —— 运行日志（外部服务故障、同步结果等）。
+    // 这些信息刻意不发到群里，只在控制台看。
+    if (segments[3] === 'events' && method === 'GET') {
+      const limit = Number(query.get('limit') ?? '100');
+      return jsonReply(await store.listEvents(groupId, Number.isInteger(limit) ? limit : 100));
+    }
+
     if (segments[3] === 'enabled') {
       if (method === 'GET') return jsonReply({ enabled: await store.isEnabled(groupId) });
       if (method === 'POST') {

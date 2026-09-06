@@ -166,7 +166,7 @@ test('Nearcade 返回 0 人时如实显示 0，不退回本地数据', async () 
   }
 });
 
-test('Nearcade 故障时明确告知用户已退回本地数据（bot 版此处静默，是已知毛边）', async () => {
+test('Nearcade 故障记进运行日志，群消息里不出现', async () => {
   const f = fixture();
   try {
     const a = await f.store.createArcade(GROUP, {
@@ -178,14 +178,24 @@ test('Nearcade 故障时明确告知用户已退回本地数据（bot 版此处�
     await f.store.report(GROUP, a.id, 5, false, USER);
     f.stub.onJson('/attendance', {}, 502);
     const text = await f.say('万达几');
-    assert.match(text!, /Nearcade 暂不可用/);
+
+    // 群里只有人数，外部故障绝不出现
     assert.match(text!, /5 人/);
+    assert.doesNotMatch(text!, /Nearcade/);
+    assert.doesNotMatch(text!, /不可用/);
+
+    // 但维护者必须能在控制台看到
+    const events = await f.store.listEvents(GROUP);
+    const hit = events.find((e) => e.kind === 'nearcade.read' && e.level === 'warn');
+    assert.ok(hit, `运行日志应记下读取失败：${JSON.stringify(events)}`);
+    assert.match(hit!.message, /失败/);
+    assert.equal(hit!.arcade, '万达');
   } finally {
     f.stub.restore();
   }
 });
 
-test('Nearcade 无该机种数据时提示「暂无数据」，与故障区分开', async () => {
+test('Nearcade 无该机种数据与「故障」在日志里可区分', async () => {
   const f = fixture();
   try {
     const a = await f.store.createArcade(GROUP, {
@@ -197,20 +207,36 @@ test('Nearcade 无该机种数据时提示「暂无数据」，与故障区分�
     await f.store.report(GROUP, a.id, 5, false, USER);
     f.stub.onJson('/attendance', { games: [{ gameId: 2, total: 3 }] });
     const text = await f.say('万达几');
-    assert.match(text!, /暂无该机种数据/);
-    assert.doesNotMatch(text!, /暂不可用/);
+
+    assert.doesNotMatch(text!, /Nearcade/, '群消息里不该出现外部服务信息');
+
+    const events = await f.store.listEvents(GROUP);
+    const hit = events.find((e) => e.kind === 'nearcade.read');
+    assert.ok(hit);
+    // 「没有该机种数据」是 info，不是 warn——这不是故障
+    assert.equal(hit!.level, 'info');
+    assert.match(hit!.message, /没有该机种/);
   } finally {
     f.stub.restore();
   }
 });
 
-test('本地数据陈旧时提示可能不准', async () => {
+test('本地数据陈旧记进日志，群消息不受影响', async () => {
   const f = fixture();
   try {
     const a = await f.store.createArcade(GROUP, { name: '万达', aliases: ['wd'] });
     await f.store.report(GROUP, a.id, 5, false, USER);
     f.time.advance(3 * 3600 * 1000);
-    assert.match((await f.say('万达几'))!, /超过 2 小时/);
+    const text = await f.say('万达几');
+
+    assert.doesNotMatch(text!, /陈旧|不准|小时/, '群里只该有人数三行');
+
+    const events = await f.store.listEvents(GROUP);
+    const hit = events.find((e) => e.kind === 'stale');
+    assert.ok(hit, '陈旧应当记进日志');
+    assert.equal(hit!.level, 'warn');
+    assert.match(hit!.message, /陈旧/);
+    assert.match(hit!.message, /3 小时/);
   } finally {
     f.stub.restore();
   }
@@ -256,7 +282,7 @@ test('上报人数不变时不显示差值', async () => {
   }
 });
 
-test('未配 Nearcade token 时上报只存本地并说明未同步', async () => {
+test('未配 Nearcade token 时不发外部请求，未同步只记日志', async () => {
   const f = fixture();
   try {
     await f.store.createArcade(GROUP, {
@@ -266,8 +292,12 @@ test('未配 Nearcade token 时上报只存本地并说明未同步', async () =
       nearcade_game_id: 2,
     });
     const text = await f.say('万达5');
-    assert.match(text!, /未配置 Nearcade Token/);
-    assert.equal(f.stub.calls.length, 0);
+    assert.equal(f.stub.calls.length, 0, '没 token 就不该发请求');
+    assert.doesNotMatch(text!, /Token|同步/, '群里不该出现同步状态');
+
+    const hit = (await f.store.listEvents(GROUP)).find((e) => e.kind === 'nearcade.write');
+    assert.ok(hit);
+    assert.match(hit!.message, /未配置 Nearcade Token/);
   } finally {
     f.stub.restore();
   }
@@ -284,9 +314,14 @@ test('配了 token 时上报会写回 Nearcade', async () => {
     });
     f.stub.onJson('/attendance', { ok: true });
     const text = await f.say('万达5', { nearcadeToken: 'nk_x' });
-    assert.match(text!, /已同步 Nearcade/);
+    assert.doesNotMatch(text!, /Nearcade/, '群里不该出现同步状态');
     const call = f.stub.calls.find((item) => item.method === 'POST')!;
     assert.deepEqual(JSON.parse(call.body!).games, [{ id: 2, currentAttendances: 5 }]);
+
+    const hit = (await f.store.listEvents(GROUP)).find((e) => e.kind === 'nearcade.write');
+    assert.ok(hit);
+    assert.equal(hit!.level, 'info');
+    assert.match(hit!.message, /已同步 Nearcade/);
   } finally {
     f.stub.restore();
   }
@@ -303,11 +338,17 @@ test('Nearcade 写入失败时提示未确认且不重试', async () => {
     });
     f.stub.onError('/attendance');
     const text = await f.say('万达5', { nearcadeToken: 'nk_x' });
-    assert.match(text!, /未确认/);
-    assert.match(text!, /不自动重试/);
-    assert.equal(f.stub.countFor('/attendance'), 1);
+    assert.doesNotMatch(text!, /未确认|重试/, '群里不该出现同步细节');
+    assert.equal(f.stub.countFor('/attendance'), 1, '写接口只能发一次');
     // 本地数据仍然要保存成功
     assert.equal((await f.store.resolve(GROUP, 'wd')).count, 5);
+
+    // 同步未确认属于要人关注的情况，级别是 warn
+    const hit = (await f.store.listEvents(GROUP)).find((e) => e.kind === 'nearcade.write');
+    assert.ok(hit);
+    assert.equal(hit!.level, 'warn');
+    assert.match(hit!.message, /未确认/);
+    assert.match(hit!.message, /不自动重试/);
   } finally {
     f.stub.restore();
   }
@@ -416,11 +457,18 @@ test('从未上报过时提示「还没有人上报」，而不是「超过 2 �
   try {
     await f.store.createArcade(GROUP, { name: '万达', aliases: ['wd'] });
     const text = await f.say('万达几');
-    // 从没人报过却说「数据已超过 2 小时」是错的说法。
-    assert.doesNotMatch(text!, /超过 2 小时/);
-    assert.match(text!, /还没有人上报/);
-    // 顺便给出可操作的下一步（用别名举例，见 shortestLabel）。
-    assert.match(text!, /wd5/);
+    // 群里只有人数三行。注意「(尚未上报)」属于那三行的一部分，是允许的；
+    // 不允许的是「本群还没有人上报过人数，发送…」这类给维护者看的提示。
+    assert.doesNotMatch(text!, /还没有人上报|小时/);
+
+    // 「从未上报」与「陈旧」在日志里必须是不同说法：
+    // 从没人报过却说「数据已陈旧」是错的。
+    const hit = (await f.store.listEvents(GROUP)).find((e) => e.kind === 'stale');
+    assert.ok(hit);
+    assert.match(hit!.message, /还没有人上报过/);
+    assert.doesNotMatch(hit!.message, /陈旧/);
+    // 日志里给出可操作的下一步，用最短别名（见 shortestLabel）
+    assert.match(hit!.message, /「wd5」/);
   } finally {
     f.stub.restore();
   }
@@ -433,8 +481,12 @@ test('上报过但陈旧时才提示「超过 2 小时」', async () => {
     await f.store.report(GROUP, a.id, 5, false, USER);
     f.time.advance(3 * 3600 * 1000);
     const text = await f.say('万达几');
-    assert.match(text!, /超过 2 小时/);
-    assert.doesNotMatch(text!, /还没有人上报/);
+    assert.doesNotMatch(text!, /陈旧|上报/, '群里不该出现这些提示');
+
+    const hit = (await f.store.listEvents(GROUP)).find((e) => e.kind === 'stale');
+    assert.ok(hit);
+    assert.match(hit!.message, /陈旧/);
+    assert.doesNotMatch(hit!.message, /还没有人上报过/);
   } finally {
     f.stub.restore();
   }
@@ -463,8 +515,13 @@ test('提示语用最短别名举例，不用冗长的机厅全名', async () =>
       machine_count: 1,
     });
     const text = await f.say('hy几');
-    assert.match(text!, /发送「hy5」/, `应当用最短别名 hy：${text}`);
-    assert.doesNotMatch(text!, /焕游星际（上海临港万达店）5/, '不该把长全名拼进提示');
+    assert.doesNotMatch(text!, /hy|焕游/, '群消息里不该出现举例');
+
+    // 举例出现在运行日志里，且用最短别名
+    const hit = (await f.store.listEvents(GROUP)).find((e) => e.kind === 'stale');
+    assert.ok(hit);
+    assert.match(hit!.message, /「hy5」/, `应当用最短别名 hy：${hit!.message}`);
+    assert.doesNotMatch(hit!.message, /焕游星际（上海临港万达店）5/, '不该把长全名拼进提示');
   } finally {
     f.stub.restore();
   }
@@ -486,8 +543,64 @@ test('没有别名时退回机厅全名，不至于无从举例', async () => {
   const f = fixture();
   try {
     await f.store.createArcade(GROUP, { name: '万达', aliases: [] });
-    const text = await f.say('万达几');
-    assert.match(text!, /发送「万达5」/);
+    await f.say('万达几');
+    const hit = (await f.store.listEvents(GROUP)).find((e) => e.kind === 'stale');
+    assert.ok(hit);
+    assert.match(hit!.message, /「万达5」/);
+  } finally {
+    f.stub.restore();
+  }
+});
+
+test('群消息永远只有那三行，任何情况都不多', async () => {
+  const f = fixture();
+  try {
+    const a = await f.store.createArcade(GROUP, {
+      name: '焕游星际（上海临港万达店）',
+      aliases: ['hy'],
+      machine_count: 1,
+      notice: '四楼扶梯右转',            // 有店铺通知
+      nearcade_shop_id: 17217,          // 配了 Nearcade
+      nearcade_game_id: 1,
+    });
+    await f.store.report(GROUP, a.id, 5, false, USER);
+    f.time.advance(5 * 3600 * 1000);    // 数据陈旧
+    f.stub.onError('/attendance');      // 外部服务还挂了
+
+    // 以上四种「会想加提示」的条件同时成立，群消息仍必须只有三行。
+    const text = await f.say('hy几');
+    const lines = text!.split('\n').filter((line) => line.trim());
+    assert.equal(lines.length, 3, `应当只有三行，实际：${JSON.stringify(text)}`);
+    assert.match(lines[0]!, /^→ \d+ 人 \(/);
+    assert.match(lines[1]!, /^🕰 更新时间：/);
+    assert.match(lines[2]!, /^⌛️ 大约需要 \d+ 分钟才能上机$/);
+
+    // 店铺通知也不进群消息（用户明确要求「顶天就这些」）
+    assert.doesNotMatch(text!, /扶梯/);
+
+    // 但这些情况都得在日志里留痕，否则无从排查
+    const kinds = (await f.store.listEvents(GROUP)).map((e) => e.kind);
+    assert.ok(kinds.includes('nearcade.read'), `应记下外部失败：${kinds}`);
+    assert.ok(kinds.includes('stale'), `应记下数据陈旧：${kinds}`);
+  } finally {
+    f.stub.restore();
+  }
+});
+
+test('上报的群消息同样只有三行', async () => {
+  const f = fixture();
+  try {
+    await f.store.createArcade(GROUP, {
+      name: '万达',
+      aliases: ['wd'],
+      nearcade_shop_id: 10,
+      nearcade_game_id: 2,
+    });
+    f.stub.onError('/attendance');   // 同步失败
+    const text = await f.say('wd8', { nearcadeToken: 'nk_x' });
+    const lines = text!.split('\n').filter((line) => line.trim());
+    assert.equal(lines.length, 3, `应当只有三行，实际：${JSON.stringify(text)}`);
+    assert.match(lines[0]!, /^→ 8 人 \(\+8\)$/);
   } finally {
     f.stub.restore();
   }

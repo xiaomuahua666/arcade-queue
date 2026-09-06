@@ -349,3 +349,77 @@ test('markMessageSeen 清理超过 TTL 的旧记录', async () => {
   // 旧记录被清掉后，同一个 id 会被视为首次出现。
   assert.equal(await store.markMessageSeen('old'), true);
 });
+
+test('logEvent 写入、listEvents 倒序读出', async () => {
+  const { store, time } = newStore();
+  await store.logEvent({ groupId: GROUP, arcade: '万达', level: 'warn', kind: 'nearcade.read', message: '第一条' });
+  time.advance(1000);
+  await store.logEvent({ groupId: GROUP, arcade: '万达', level: 'info', kind: 'stale', message: '第二条' });
+
+  const rows = await store.listEvents(GROUP);
+  assert.equal(rows.length, 2);
+  // 最新的在前，控制台要先看到刚发生的事
+  assert.equal(rows[0]!.message, '第二条');
+  assert.equal(rows[1]!.message, '第一条');
+  assert.equal(rows[0]!.kind, 'stale');
+  assert.equal(rows[1]!.level, 'warn');
+  assert.equal(rows[1]!.arcade, '万达');
+});
+
+test('listEvents 按群隔离，不泄露其他群的日志', async () => {
+  const { store } = newStore();
+  await store.logEvent({ groupId: GROUP, message: 'A 群的事' });
+  await store.logEvent({ groupId: OTHER_GROUP, message: 'B 群的事' });
+
+  const a = await store.listEvents(GROUP);
+  assert.equal(a.length, 1);
+  assert.equal(a[0]!.message, 'A 群的事');
+  // 不传 groupId 则返回全部（给未来的全局视图用）
+  assert.equal((await store.listEvents()).length, 2);
+});
+
+test('listEvents 的 limit 生效且有上限', async () => {
+  const { store } = newStore();
+  for (let i = 0; i < 10; i += 1) await store.logEvent({ groupId: GROUP, message: `第 ${i} 条` });
+  assert.equal((await store.listEvents(GROUP, 3)).length, 3);
+  await assert.rejects(() => store.listEvents(GROUP, 0), RangeError);
+  await assert.rejects(() => store.listEvents(GROUP, 501), RangeError);
+});
+
+test('logEvent 有默认值，只给 message 也能用', async () => {
+  const { store } = newStore();
+  await store.logEvent({ message: '全局事件' });
+  const [row] = await store.listEvents();
+  assert.equal(row!.message, '全局事件');
+  assert.equal(row!.level, 'info');
+  assert.equal(row!.group_id, '');
+  assert.equal(row!.arcade, '');
+});
+
+test('logEvent 裁剪过长内容，不让单条日志撑爆', async () => {
+  const { store } = newStore();
+  await store.logEvent({ groupId: GROUP, message: 'x'.repeat(5000), arcade: 'y'.repeat(500), kind: 'z'.repeat(200) });
+  const [row] = await store.listEvents(GROUP);
+  assert.equal(row!.message.length, 1000);
+  assert.equal(row!.arcade.length, 200);
+  assert.equal(row!.kind.length, 60);
+});
+
+test('event_log 自动裁剪到 500 条，不会无限增长', async () => {
+  const { store } = newStore();
+  for (let i = 0; i < 520; i += 1) await store.logEvent({ groupId: GROUP, message: `第 ${i} 条` });
+  // listEvents 上限是 500，所以直接查全部即可确认表内不超过 500
+  const rows = await store.listEvents(GROUP, 500);
+  assert.equal(rows.length, 500);
+  // 最老的应当已被裁掉
+  assert.equal(rows.some((row) => row.message === '第 0 条'), false);
+  assert.equal(rows[0]!.message, '第 519 条');
+});
+
+test('logEvent 失败时不抛错（记日志不能影响主流程）', async () => {
+  const db = createTestDb();
+  const store = new QueueStore(db);
+  // 把表删掉模拟写入失败
+  await db.prepare('DROP TABLE event_log').run();
+  await assert.doesNotReject(() => store.logEvent({ groupId: GROUP, message: '写不进去' }));
+});

@@ -190,8 +190,10 @@ test('默认查询模板能完整渲染，不残留占位符', () => {
   assert.doesNotMatch(text, /\{[A-Za-z0-9_]+\}/, `残留占位符：${text}`);
   assert.match(text, /6 人/);
   assert.match(text, /17 分钟/);
-  assert.match(text, /空调坏了/);
-  assert.match(text, /Nearcade 暂不可用/);
+  // 即便机厅配了通知、传入了外部状态，默认模板也不输出它们——
+  // 群消息只保留人数三行，那些信息去运行日志看。
+  assert.doesNotMatch(text, /空调坏了/);
+  assert.doesNotMatch(text, /Nearcade/);
 });
 
 test('freshness 占位符把整句都包进去，避免残缺文本', () => {
@@ -256,8 +258,7 @@ test('默认上报模板的完整输出', () => {
       '',
       // 1 台=容量 2，8 人 → 排队 6 → ceil(6/2)=3 轮 → 51 分钟
       '⌛️ 大约需要 51 分钟才能上机',
-      '',
-      '已同步 Nearcade。',
+      // 同步状态不进群消息（记入运行日志），所以这里到此结束。
     ].join('\n'),
   );
 });

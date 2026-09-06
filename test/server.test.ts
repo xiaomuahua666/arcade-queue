@@ -515,3 +515,77 @@ test('管理 API：Nearcade 搜索校验与透传', async () => {
     await h.close();
   }
 });
+
+test('管理 API：运行日志可读，按群隔离', async () => {
+  const h = await startServer();
+  try {
+    await h.store.logEvent({ groupId: GROUP, arcade: '万达', level: 'warn', kind: 'nearcade.read', message: '读取失败' });
+    await h.store.logEvent({ groupId: '999', message: '别的群' });
+
+    const rows = (await (await api(h.url, `/api/groups/${GROUP}/events`)).json()) as Array<{
+      message: string;
+      level: string;
+      kind: string;
+      arcade: string;
+    }>;
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.message, '读取失败');
+    assert.equal(rows[0]!.level, 'warn');
+    assert.equal(rows[0]!.arcade, '万达');
+  } finally {
+    await h.close();
+  }
+});
+
+test('管理 API：运行日志需要鉴权', async () => {
+  const h = await startServer();
+  try {
+    assert.equal((await api(h.url, `/api/groups/${GROUP}/events`, { token: null })).status, 401);
+  } finally {
+    await h.close();
+  }
+});
+
+test('管理 API：运行日志支持 limit', async () => {
+  const h = await startServer();
+  try {
+    for (let i = 0; i < 5; i += 1) await h.store.logEvent({ groupId: GROUP, message: `第 ${i} 条` });
+    const rows = (await (await api(h.url, `/api/groups/${GROUP}/events?limit=2`)).json()) as unknown[];
+    assert.equal(rows.length, 2);
+  } finally {
+    await h.close();
+  }
+});
+
+test('群里查一次人数后，运行日志里能看到外部故障（端到端）', async () => {
+  const h = await startServer();
+  try {
+    const arcade = await h.store.createArcade(GROUP, {
+      name: '万达',
+      aliases: ['wd'],
+      // 不配 Nearcade：这样查询流程不会发出任何外部请求，
+      // 测试不依赖外网。「读不到外部数据」的日志照样会记。
+    });
+    await h.store.report(GROUP, arcade.id, 4, false, USER);
+    // 让数据变陈旧，制造一个确定会记日志的情况。
+    h.time.advance(3 * 3600 * 1000);
+
+    const reply = ((await (await report(h.url, groupMessage('wd几'))).json()) as { reply: string }).reply;
+    // 群里只有人数三行
+    const lines = reply.split('\n').filter((line) => line.trim());
+    assert.equal(lines.length, 3, `群消息应只有三行：${JSON.stringify(reply)}`);
+    assert.match(reply, /4 人/);
+    assert.doesNotMatch(reply, /陈旧/, '群消息不该出现维护类提示');
+
+    // 控制台能看到原因
+    const rows = (await (await api(h.url, `/api/groups/${GROUP}/events`)).json()) as Array<{
+      kind: string;
+      message: string;
+    }>;
+    const hit = rows.find((row) => row.kind === 'stale');
+    assert.ok(hit, `控制台应能看到原因：${JSON.stringify(rows)}`);
+    assert.match(hit!.message, /陈旧/);
+  } finally {
+    await h.close();
+  }
+});

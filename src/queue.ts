@@ -52,11 +52,18 @@ export function normalize(value: unknown): string {
     .toLowerCase();
 }
 
+/**
+ * 群里只输出这三行，不允许再多。
+ *
+ * 外部服务状态（Nearcade 故障、数据陈旧、同步未确认等）一律**不进群消息**，
+ * 而是记入运行日志、在控制台查看。理由：那些信息对群友无用且吵，
+ * 但对维护者排查有用——两种受众不该共用一个出口。
+ */
 export const DEFAULT_QUERY_TEMPLATE =
-  '→ {currentCount} 人 {freshness}\n\n🕰 更新时间：{updateTime}\n\n⌛️ 大约需要 {waitTime} 分钟才能上机\n\n{noticeBlock}\n\n{externalStatus}';
+  '→ {currentCount} 人 {freshness}\n\n🕰 更新时间：{updateTime}\n\n⌛️ 大约需要 {waitTime} 分钟才能上机';
 
 export const DEFAULT_REPORT_TEMPLATE =
-  '→ {currentCount} 人 {diff}\n\n🕰 更新时间：{updateTime}\n\n⌛️ 大约需要 {waitTime} 分钟才能上机\n\n{nearcadeSyncStatus}';
+  '→ {currentCount} 人 {diff}\n\n🕰 更新时间：{updateTime}\n\n⌛️ 大约需要 {waitTime} 分钟才能上机';
 
 export const DEFAULT_PREDICT_TEMPLATE =
   '→ 🔮 预测报告！\n\n🎮 {displayName}\n\n🎉 目前人数: {currentCount} 人\n\n⌛️ 预测等待: {waitTime} 分钟\n\n趋势: {trendDesc}\n\n样本数: {sampleCount}\n\n{forecastDisclaimer}\n\n更新时间: {updateTime}\n{nearcadeLink}';

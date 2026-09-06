@@ -21,6 +21,9 @@ const HISTORY_LIMIT = 2000;
 /** 幂等表保留时长：QQ 被动回复窗口只有 5 分钟，留 1 小时足够。 */
 const SEEN_MESSAGE_TTL_MS = 3600 * 1000;
 
+/** 运行日志保留条数。够翻查近期问题，又不会让表无限增长。 */
+const EVENT_LOG_LIMIT = 500;
+
 /** 机厅名称/别名/通知等字段的长度上限，与 bot 版对齐。 */
 const LIMITS = {
   name: 80,
@@ -59,6 +62,17 @@ interface ArcadeRow {
 export interface HistoryEntry {
   count: number;
   diff: number;
+  created_at: number;
+}
+
+/** 运行日志条目，展示在控制台。 */
+export interface EventEntry {
+  id: number;
+  group_id: string;
+  arcade: string;
+  level: string;
+  kind: string;
+  message: string;
   created_at: number;
 }
 
@@ -483,6 +497,66 @@ export class QueueStore {
    * 幂等：首次见到该 msg_id 返回 true，重复推送返回 false。
    * QQ 平台明确说相同 msg_id 可能多次推送，不去重会重复回复（bot 版的双发老问题）。
    */
+  /**
+   * 记一条运行日志。给维护者在控制台看，不发到群里。
+   *
+   * 刻意不抛错：记日志失败绝不能影响正常回复。宁可丢一条日志，
+   * 也不能因为写日志出问题而让群友收不到人数。
+   */
+  async logEvent(entry: {
+    groupId?: string;
+    arcade?: string;
+    level?: 'info' | 'warn' | 'error';
+    kind?: string;
+    message: string;
+  }): Promise<void> {
+    try {
+      const now = this.now();
+      await this.db
+        .prepare(
+          'INSERT INTO event_log(group_id, arcade, level, kind, message, created_at) VALUES(?,?,?,?,?,?)',
+        )
+        .bind(
+          String(entry.groupId ?? ''),
+          String(entry.arcade ?? '').slice(0, 200),
+          entry.level ?? 'info',
+          String(entry.kind ?? '').slice(0, 60),
+          String(entry.message).slice(0, 1000),
+          now,
+        )
+        .run();
+      // 顺手裁剪，避免长期运行后表无限增长（省掉一个定时任务）。
+      await this.db
+        .prepare(
+          `DELETE FROM event_log
+           WHERE id NOT IN (SELECT id FROM event_log ORDER BY id DESC LIMIT ${EVENT_LOG_LIMIT})`,
+        )
+        .run();
+    } catch {
+      /* 记日志失败时静默：不能影响主流程 */
+    }
+  }
+
+  /** 读运行日志。groupId 为空则返回全部群的。 */
+  async listEvents(groupId = '', limit = 100): Promise<EventEntry[]> {
+    const capped = integer(limit, 1, 500);
+    const statement = groupId
+      ? this.db
+          .prepare(
+            `SELECT id, group_id, arcade, level, kind, message, created_at
+             FROM event_log WHERE group_id = ? ORDER BY id DESC LIMIT ?`,
+          )
+          .bind(String(groupId), capped)
+      : this.db
+          .prepare(
+            `SELECT id, group_id, arcade, level, kind, message, created_at
+             FROM event_log ORDER BY id DESC LIMIT ?`,
+          )
+          .bind(capped);
+    const { results } = await statement.all<EventEntry>();
+    return results ?? [];
+  }
+
   async markMessageSeen(msgId: string): Promise<boolean> {
     const id = String(msgId ?? '').trim();
     if (!id) return true;
