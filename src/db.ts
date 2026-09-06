@@ -112,7 +112,7 @@ class SqliteDatabase implements Database {
 const MIGRATIONS_DIR = join(import.meta.dirname, '../migrations');
 
 /** 按文件名顺序执行的迁移清单。新增迁移时在这里登记。 */
-const MIGRATIONS = ['0001_init.sql', '0002_event_log.sql'];
+const MIGRATIONS = ['0001_init.sql', '0002_event_log.sql', '0003_group_meta.sql'];
 
 /**
  * 打开数据库并跑迁移。

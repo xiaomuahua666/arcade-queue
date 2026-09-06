@@ -589,3 +589,93 @@ test('群里查一次人数后，运行日志里能看到外部故障（端到�
     await h.close();
   }
 });
+
+test('管理 API：GET /api/groups 列出所有配置过的群', async () => {
+  const h = await startServer();
+  try {
+    const a = await h.store.createArcade(GROUP, { name: '万达', aliases: ['wd'] });
+    await h.store.report(GROUP, a.id, 6, false, USER);
+    await h.store.createArcade('987654321', { name: '银泰', aliases: ['yt'] });
+    await h.store.setGroupLabel(GROUP, '临港排卡群');
+
+    const rows = (await (await api(h.url, '/api/groups')).json()) as Array<{
+      group_id: string;
+      label: string;
+      arcade_count: number;
+      total_count: number;
+      enabled: boolean;
+    }>;
+    assert.equal(rows.length, 2);
+    const mine = rows.find((row) => row.group_id === GROUP)!;
+    assert.equal(mine.label, '临港排卡群');
+    assert.equal(mine.arcade_count, 1);
+    assert.equal(mine.total_count, 6);
+    assert.equal(mine.enabled, true);
+  } finally {
+    await h.close();
+  }
+});
+
+test('管理 API：/api/groups 需要鉴权', async () => {
+  const h = await startServer();
+  try {
+    assert.equal((await api(h.url, '/api/groups', { token: null })).status, 401);
+  } finally {
+    await h.close();
+  }
+});
+
+test('管理 API：群备注读写', async () => {
+  const h = await startServer();
+  try {
+    const path = `/api/groups/${GROUP}/label`;
+    assert.deepEqual(await (await api(h.url, path)).json(), { label: '' });
+    const saved = await api(h.url, path, { method: 'POST', body: JSON.stringify({ label: '临港排卡群' }) });
+    assert.deepEqual(await saved.json(), { label: '临港排卡群' });
+    assert.deepEqual(await (await api(h.url, path)).json(), { label: '临港排卡群' });
+  } finally {
+    await h.close();
+  }
+});
+
+test('管理 API：群备注过长返回 400', async () => {
+  const h = await startServer();
+  try {
+    const response = await api(h.url, `/api/groups/${GROUP}/label`, {
+      method: 'POST',
+      body: JSON.stringify({ label: 'x'.repeat(61) }),
+    });
+    assert.equal(response.status, 400);
+  } finally {
+    await h.close();
+  }
+});
+
+test('一个号服务多群：三个群同名别名互不干扰（端到端）', async () => {
+  const h = await startServer();
+  try {
+    const groups = ['111111111', '222222222', '333333333'];
+    const counts = [3, 10, 20];
+    // 三个群都用别名 wd，机台数不同
+    for (const [index, gid] of groups.entries()) {
+      await h.store.createArcade(gid, { name: `${gid} 的万达`, aliases: ['wd'], machine_count: index + 1 });
+    }
+    let msgId = 40000;
+    for (const [index, gid] of groups.entries()) {
+      await report(h.url, groupMessage(`wd${counts[index]}`, { group_id: Number(gid), message_id: msgId++ }));
+    }
+    // 各群查到的必须是自己的数字
+    for (const [index, gid] of groups.entries()) {
+      const reply = ((await (
+        await report(h.url, groupMessage('wd几', { group_id: Number(gid), message_id: msgId++ }))
+      ).json()) as { reply: string }).reply;
+      assert.match(reply, new RegExp(`${counts[index]} 人`), `群 ${gid} 应看到 ${counts[index]} 人：${reply}`);
+    }
+    // 群列表能一次看到全部三个群
+    const rows = (await (await api(h.url, '/api/groups')).json()) as Array<{ group_id: string }>;
+    assert.equal(rows.length, 3);
+    for (const gid of groups) assert.ok(rows.some((row) => row.group_id === gid), `列表应含 ${gid}`);
+  } finally {
+    await h.close();
+  }
+});

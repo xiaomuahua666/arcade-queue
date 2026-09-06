@@ -423,3 +423,95 @@ test('logEvent 失败时不抛错（记日志不能影响主流程）', async ()
   await db.prepare('DROP TABLE event_log').run();
   await assert.doesNotReject(() => store.logEvent({ groupId: GROUP, message: '写不进去' }));
 });
+
+test('listGroups 汇总每个群的机厅数、总人数、最后上报时间', async () => {
+  const { store, time } = newStore();
+  const a = await store.createArcade(GROUP, { name: '万达', aliases: ['wd'] });
+  const b = await store.createArcade(GROUP, { name: '银泰', aliases: ['yt'] });
+  await store.createArcade(OTHER_GROUP, { name: '别的群的厅', aliases: ['x'] });
+
+  await store.report(GROUP, a.id, 3, false, 'u');
+  time.advance(60000);
+  await store.report(GROUP, b.id, 7, false, 'u');
+  const lastReport = time.now();
+
+  const rows = await store.listGroups();
+  assert.equal(rows.length, 2, '两个群都该列出来');
+
+  const mine = rows.find((row) => row.group_id === GROUP)!;
+  assert.equal(mine.arcade_count, 2);
+  assert.equal(mine.total_count, 10, '3 + 7');
+  assert.equal(mine.last_report_at, lastReport);
+  assert.equal(mine.enabled, true);
+});
+
+test('listGroups 只列配过机厅的群（没机厅的群不会响应指令，列出来是误导）', async () => {
+  const { store } = newStore();
+  // 只改了开关、没配机厅
+  await store.setEnabled('888888', false);
+  assert.deepEqual(await store.listGroups(), []);
+
+  await store.createArcade(GROUP, { name: '万达' });
+  const rows = await store.listGroups();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]!.group_id, GROUP);
+});
+
+test('listGroups 反映群开关状态', async () => {
+  const { store } = newStore();
+  await store.createArcade(GROUP, { name: '万达' });
+  await store.setEnabled(GROUP, false);
+  assert.equal((await store.listGroups())[0]!.enabled, false);
+});
+
+test('listGroups 按最近上报时间倒序（活跃的在上面）', async () => {
+  const { store, time } = newStore();
+  const a = await store.createArcade(GROUP, { name: 'A厅' });
+  const b = await store.createArcade(OTHER_GROUP, { name: 'B厅' });
+  await store.report(GROUP, a.id, 1, false, 'u');
+  time.advance(60000);
+  await store.report(OTHER_GROUP, b.id, 1, false, 'u');
+
+  const rows = await store.listGroups();
+  assert.equal(rows[0]!.group_id, OTHER_GROUP, '刚上报的群应当在最前');
+  assert.equal(rows[1]!.group_id, GROUP);
+});
+
+test('listGroups 里从未上报的群 last_report_at 为 0', async () => {
+  const { store } = newStore();
+  await store.createArcade(GROUP, { name: '万达' });
+  const [row] = await store.listGroups();
+  assert.equal(row!.last_report_at, 0);
+  assert.equal(row!.total_count, 0);
+});
+
+test('群备注可存可读可清空', async () => {
+  const { store } = newStore();
+  assert.equal(await store.getGroupLabel(GROUP), '', '没设过应为空串');
+  assert.equal(await store.setGroupLabel(GROUP, '  临港排卡群  '), '临港排卡群', '应当去掉首尾空白');
+  assert.equal(await store.getGroupLabel(GROUP), '临港排卡群');
+  // 覆盖
+  await store.setGroupLabel(GROUP, '改个名');
+  assert.equal(await store.getGroupLabel(GROUP), '改个名');
+  // 清空
+  assert.equal(await store.setGroupLabel(GROUP, ''), '');
+  assert.equal(await store.getGroupLabel(GROUP), '');
+});
+
+test('群备注出现在 listGroups 里', async () => {
+  const { store } = newStore();
+  await store.createArcade(GROUP, { name: '万达' });
+  await store.setGroupLabel(GROUP, '临港排卡群');
+  assert.equal((await store.listGroups())[0]!.label, '临港排卡群');
+});
+
+test('群备注过长被拒绝', async () => {
+  const { store } = newStore();
+  await assert.rejects(() => store.setGroupLabel(GROUP, 'x'.repeat(61)), ValidationError);
+});
+
+test('群备注按群隔离', async () => {
+  const { store } = newStore();
+  await store.setGroupLabel(GROUP, 'A 群');
+  assert.equal(await store.getGroupLabel(OTHER_GROUP), '');
+});

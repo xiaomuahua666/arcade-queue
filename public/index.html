@@ -2,11 +2,12 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <title>机厅排卡控制台</title>
 <meta name="robots" content="noindex" />
+<meta name="color-scheme" content="dark" />
 <style>
-/* 色彩取自 Linear 设计体系（深色画布 + 四级表面阶梯 + 单一薰衣草蓝强调 + 发丝描边替代投影）。
+/* 色彩取自 Linear 设计体系（深色画布 + 表面阶梯 + 单一薰衣草蓝 + 发丝描边替代投影）。
    刻意不套用它的营销版式：无全屏英雄区、无 80px 大标题——这是工具界面。 */
 :root{
   --canvas:#010102; --s1:#0f1011; --s2:#141516; --s3:#18191a;
@@ -15,29 +16,90 @@
   --primary:#5e6ad2; --primary-hover:#828fff;
   --success:#27a644; --danger:#d05e5e; --warn:#c79a3a;
   --r:6px;
+  --drawer-w:270px;
+  --header-h:48px;
+  /* 触控目标最小 40px：手机上按钮太小会点不准 */
+  --tap:40px;
 }
-*{box-sizing:border-box}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--canvas);color:var(--ink);
   font:14px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif;
-  letter-spacing:-0.05px;-webkit-font-smoothing:antialiased}
-header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:12px;
-  padding:10px 16px;background:rgba(1,1,2,.9);backdrop-filter:blur(8px);border-bottom:1px solid var(--hairline)}
-header h1{margin:0;font-size:14px;font-weight:600;letter-spacing:-0.2px}
+  letter-spacing:-0.05px;-webkit-font-smoothing:antialiased;overscroll-behavior-y:none}
+
+/* ---------- 顶栏 ---------- */
+header{position:fixed;top:0;left:0;right:0;height:var(--header-h);z-index:30;
+  display:flex;align-items:center;gap:10px;padding:0 12px;
+  background:rgba(1,1,2,.94);backdrop-filter:blur(8px);border-bottom:1px solid var(--hairline)}
+header h1{margin:0;font-size:14px;font-weight:600;letter-spacing:-0.2px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
 header .spacer{flex:1}
-main{max-width:1000px;margin:0 auto;padding:16px;display:grid;gap:14px}
-.panel{background:var(--s1);border:1px solid var(--hairline);border-radius:var(--r);padding:14px}
-.panel>h2{margin:0 0 10px;font-size:12px;font-weight:500;color:var(--ink-subtle);
+header .who{color:var(--ink-subtle);font-size:12px;white-space:nowrap}
+/* 汉堡按钮：只在窄屏出现 */
+#menuBtn{display:none;width:var(--tap);height:var(--tap);min-width:var(--tap);
+  align-items:center;justify-content:center;background:transparent;
+  border:1px solid var(--hairline-strong);border-radius:var(--r);color:var(--ink);
+  font-size:16px;cursor:pointer;padding:0}
+
+/* ---------- 抽屉 ---------- */
+#drawer{position:fixed;top:var(--header-h);bottom:0;left:0;width:var(--drawer-w);z-index:20;
+  background:var(--s1);border-right:1px solid var(--hairline);
+  display:flex;flex-direction:column;
+  transition:transform .22s ease}
+#drawer .drawer-head{padding:12px 12px 8px;border-bottom:1px solid var(--hairline)}
+#drawer .drawer-head h2{margin:0 0 8px;font-size:12px;font-weight:500;color:var(--ink-subtle);
   text-transform:uppercase;letter-spacing:.4px}
+#groupList{flex:1;overflow-y:auto;padding:8px;-webkit-overflow-scrolling:touch}
+.gitem{display:block;width:100%;text-align:left;background:var(--s2);color:var(--ink);
+  border:1px solid var(--hairline);border-radius:var(--r);padding:9px 10px;margin-bottom:6px;
+  cursor:pointer;font:inherit;min-height:var(--tap)}
+.gitem:hover{border-color:var(--hairline-strong)}
+.gitem.active{border-color:var(--primary);background:var(--s3)}
+.gitem .gname{font-weight:500;font-size:13px;display:flex;align-items:center;gap:6px}
+.gitem .gname .off{font-size:11px;color:var(--warn);border:1px solid var(--warn);
+  border-radius:99px;padding:0 5px;font-weight:400}
+.gitem .gmeta{color:var(--ink-subtle);font-size:11px;margin-top:3px;
+  display:flex;gap:8px;flex-wrap:wrap}
+.gitem .gnum{color:var(--ink-subtle);font-size:11px;font-family:ui-monospace,Menlo,monospace}
+.drawer-foot{padding:8px;border-top:1px solid var(--hairline)}
+
+/* 遮罩：窄屏抽屉打开时盖住内容，点它可关闭 */
+#scrim{display:none;position:fixed;inset:var(--header-h) 0 0 0;z-index:15;
+  background:rgba(0,0,0,.5);backdrop-filter:blur(1px)}
+
+/* ---------- 主区 ---------- */
+main{padding:calc(var(--header-h) + 12px) 14px calc(14px + env(safe-area-inset-bottom));
+  margin-left:var(--drawer-w);display:grid;gap:12px;max-width:900px}
+.panel{background:var(--s1);border:1px solid var(--hairline);border-radius:var(--r);padding:13px}
+.panel>h2{margin:0 0 10px;font-size:12px;font-weight:500;color:var(--ink-subtle);
+  text-transform:uppercase;letter-spacing:.4px;display:flex;align-items:center;gap:8px}
+.panel>h2 .spacer{flex:1}
+
+/* ---------- 窄屏：抽屉改为覆盖式，默认收起 ---------- */
+@media (max-width:820px){
+  #menuBtn{display:flex}
+  #drawer{transform:translateX(-100%);box-shadow:0 0 24px rgba(0,0,0,.6);width:min(84vw,300px)}
+  body.drawer-open #drawer{transform:translateX(0)}
+  body.drawer-open #scrim{display:block}
+  main{margin-left:0;padding-left:12px;padding-right:12px}
+}
+
+/* ---------- 表单与按钮 ---------- */
 label{display:block;font-size:12px;color:var(--ink-subtle);margin-bottom:4px}
 input,textarea,select{width:100%;background:var(--s2);color:var(--ink);
-  border:1px solid var(--hairline-strong);border-radius:var(--r);padding:7px 9px;font:inherit}
+  border:1px solid var(--hairline-strong);border-radius:var(--r);
+  /* 16px 是关键：iOS Safari 对 <16px 的输入框会自动放大页面 */
+  padding:9px;font:inherit;font-size:16px;min-height:var(--tap)}
+@media (min-width:821px){input,textarea,select{font-size:14px;padding:7px 9px;min-height:34px}}
 input:focus,textarea:focus,select:focus{outline:none;border-color:var(--primary)}
-textarea{min-height:72px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
+input[type=checkbox]{width:auto;min-height:auto}
+textarea{min-height:76px;resize:vertical;font-family:ui-monospace,Menlo,monospace;font-size:13px}
 .grid{display:grid;gap:10px}
 .grid.two{grid-template-columns:1fr 1fr}
 .grid.three{grid-template-columns:1fr 1fr 1fr}
-@media(max-width:640px){.grid.two,.grid.three{grid-template-columns:1fr}}
-button{font:inherit;cursor:pointer;border-radius:var(--r);padding:7px 14px;border:1px solid transparent}
+@media (max-width:640px){.grid.two,.grid.three{grid-template-columns:1fr}}
+button{font:inherit;cursor:pointer;border-radius:var(--r);padding:8px 14px;
+  border:1px solid transparent;min-height:var(--tap)}
+@media (min-width:821px){button{min-height:32px;padding:6px 13px}}
 button.primary{background:var(--primary);color:#fff;font-weight:500}
 button.primary:hover{background:var(--primary-hover)}
 button.ghost{background:transparent;color:var(--ink-muted);border-color:var(--hairline-strong)}
@@ -45,134 +107,189 @@ button.ghost:hover{border-color:var(--primary);color:var(--ink)}
 button.danger{background:transparent;color:var(--danger);border-color:var(--hairline-strong)}
 button.danger:hover{border-color:var(--danger)}
 button:disabled{opacity:.45;cursor:not-allowed}
+button.wide{width:100%}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.arcade{background:var(--s2);border:1px solid var(--hairline);border-radius:var(--r);padding:12px;margin-bottom:8px}
+
+/* ---------- 机厅卡片 ---------- */
+.arcade{background:var(--s2);border:1px solid var(--hairline);border-radius:var(--r);
+  padding:11px;margin-bottom:8px}
 .arcade .head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .arcade .head strong{font-size:15px;letter-spacing:-0.2px}
 .arcade .meta{color:var(--ink-subtle);font-size:12px}
-.count{font-size:22px;font-weight:600;letter-spacing:-0.6px}
+.count{font-size:21px;font-weight:600;letter-spacing:-0.6px}
 .tag{display:inline-block;padding:1px 7px;border-radius:99px;font-size:11px;
-  border:1px solid var(--hairline-strong);color:var(--ink-subtle)}
+  border:1px solid var(--hairline-strong);color:var(--ink-subtle);white-space:nowrap}
 .tag.stale{border-color:var(--warn);color:var(--warn)}
 .tag.fresh{border-color:var(--success);color:var(--success)}
-.empty{color:var(--ink-subtle);padding:18px;text-align:center}
+.empty{color:var(--ink-subtle);padding:18px;text-align:center;font-size:13px}
 details{border-top:1px solid var(--hairline);margin-top:10px;padding-top:10px}
-details summary{cursor:pointer;color:var(--ink-subtle);font-size:12px}
-#toast{position:fixed;right:16px;bottom:16px;z-index:20;display:grid;gap:8px}
+details summary{cursor:pointer;color:var(--ink-subtle);font-size:12px;
+  min-height:var(--tap);display:flex;align-items:center}
+@media (min-width:821px){details summary{min-height:auto}}
+#toast{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));
+  z-index:60;display:grid;gap:8px;pointer-events:none}
+@media (min-width:821px){#toast{left:auto;right:16px;max-width:360px}}
 .toast{background:var(--s3);border:1px solid var(--hairline-strong);border-radius:var(--r);
-  padding:9px 13px;font-size:13px;max-width:340px}
+  padding:10px 13px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,.5)}
 .toast.err{border-color:var(--danger);color:#f0b8b8}
 .toast.ok{border-color:var(--success)}
 .hint{color:var(--ink-subtle);font-size:12px;margin-top:6px}
+.table-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
 table{width:100%;border-collapse:collapse;font-size:12px}
-th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--hairline)}
-th{color:var(--ink-subtle);font-weight:500}
-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--ink-muted)}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--hairline);vertical-align:top}
+th{color:var(--ink-subtle);font-weight:500;white-space:nowrap}
+code{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--ink-muted)}
+/* 登录页居中，不需要抽屉 */
+body.anon #drawer,body.anon #scrim,body.anon #menuBtn{display:none}
+body.anon main{margin-left:0;max-width:460px;margin-right:auto}
 </style>
 </head>
-<body>
+<body class="anon">
+
 <header>
-  <h1>机厅排卡控制台</h1>
+  <button id="menuBtn" aria-label="群列表">☰</button>
+  <h1 id="title">机厅排卡控制台</h1>
   <span class="spacer"></span>
-  <span class="meta" id="who" style="color:var(--ink-subtle);font-size:12px"></span>
+  <span class="who" id="who"></span>
   <button class="ghost" id="logout" hidden>退出</button>
 </header>
 
+<!-- 左侧抽屉：所有配置过的群都列在这里，不用再自己记群号 -->
+<aside id="drawer">
+  <div class="drawer-head">
+    <h2>群列表</h2>
+    <div class="row">
+      <button class="ghost" id="reloadGroups" style="flex:1">刷新</button>
+      <button class="ghost" id="addGroupBtn" style="flex:1">+ 新群</button>
+    </div>
+  </div>
+  <div id="groupList"><div class="empty">加载中…</div></div>
+  <div class="drawer-foot">
+    <p class="hint" style="margin:0">只列出配置过机厅的群。机器人在群里但没配机厅时不会响应指令。</p>
+  </div>
+</aside>
+<div id="scrim"></div>
+
 <main>
-  <!-- 登录：密钥就是 Workers secret 里的 CONSOLE_TOKEN，存 sessionStorage（关标签即失效）。 -->
+  <!-- 登录 -->
   <section class="panel" id="loginPanel">
     <h2>访问密钥</h2>
     <label for="token">CONSOLE_TOKEN</label>
-    <input id="token" type="password" autocomplete="current-password" placeholder="wrangler secret put CONSOLE_TOKEN 设置的值" />
+    <input id="token" type="password" autocomplete="current-password" inputmode="text"
+      placeholder="服务器 .env 里设置的值" />
     <div class="row" style="margin-top:10px">
-      <button class="primary" id="login">进入</button>
-      <span class="hint">密钥只存在本标签页会话中，不写 localStorage、不进 Cookie。</span>
+      <button class="primary wide" id="login">进入</button>
     </div>
+    <p class="hint">密钥只存在本标签页会话中，不写 localStorage、不进 Cookie。</p>
   </section>
 
-  <section class="panel" id="groupPanel" hidden>
-    <h2>群</h2>
+  <!-- 新增群 -->
+  <section class="panel" id="newGroupPanel" hidden>
+    <h2>添加群<span class="spacer"></span><button class="ghost" id="cancelNewGroup">取消</button></h2>
     <div class="grid two">
       <div>
-        <label for="gid">QQ 群号</label>
-        <input id="gid" inputmode="numeric" placeholder="例如 123456789" />
+        <label for="newGid">QQ 群号</label>
+        <input id="newGid" inputmode="numeric" placeholder="例如 123456789" />
+      </div>
+      <div>
+        <label for="newLabel">备注名（可选，便于识别）</label>
+        <input id="newLabel" placeholder="例如 临港排卡群" />
+      </div>
+    </div>
+    <p class="hint">
+      填好后到下面「本群机厅」添加第一家机厅，这个群才会开始响应指令。
+      群号在 QQ 群设置里能看到。
+    </p>
+    <div class="row" style="margin-top:10px"><button class="primary" id="confirmNewGroup">确定</button></div>
+  </section>
+
+  <!-- 当前群 -->
+  <section class="panel" id="groupPanel" hidden>
+    <h2>当前群<span class="spacer"></span><span class="tag" id="enabledTag">—</span></h2>
+    <div class="grid two">
+      <div>
+        <label for="labelInput">备注名</label>
+        <div class="row">
+          <input id="labelInput" placeholder="给这个群起个名字" style="flex:1;min-width:140px" />
+          <button class="ghost" id="saveLabel">保存</button>
+        </div>
       </div>
       <div>
         <label>排卡开关</label>
         <div class="row">
-          <button class="ghost" id="loadGroup">加载</button>
-          <button class="ghost" id="toggleEnabled" disabled>切换开关</button>
-          <span class="tag" id="enabledTag">未加载</span>
+          <button class="ghost" id="toggleEnabled">切换</button>
+          <span class="hint" style="margin:0">关掉后本群所有指令都不响应</span>
         </div>
       </div>
     </div>
-    <p class="hint">就是真实的 QQ 群号（群设置里能看到）。每个群的机厅、别名与模板互相独立。</p>
+    <p class="hint">群号：<code id="gidText">—</code></p>
   </section>
 
+  <!-- 机厅 -->
   <section class="panel" id="arcadePanel" hidden>
-    <h2>本群机厅</h2>
+    <h2>本群机厅<span class="spacer"></span><button class="ghost" id="reloadArcades">刷新</button></h2>
     <div id="arcades"><div class="empty">尚未加载</div></div>
-    <details>
-      <summary>添加机厅</summary>
+    <details id="addArcadeBox">
+      <summary>+ 添加机厅</summary>
       <div class="grid two" style="margin-top:10px">
         <div><label for="n_name">名称（必填）</label><input id="n_name" /></div>
-        <div><label for="n_aliases">别名（逗号分隔）</label><input id="n_aliases" placeholder="wd, 万达广场" /></div>
-        <div><label for="n_machines">机台数</label><input id="n_machines" type="number" min="1" max="100" value="1" /></div>
+        <div><label for="n_aliases">别名（逗号分隔）</label><input id="n_aliases" placeholder="wd, 万达" /></div>
+        <div><label for="n_machines">机台数</label><input id="n_machines" type="number" inputmode="numeric" min="1" max="100" value="1" /></div>
         <div><label for="n_notice">店铺通知</label><input id="n_notice" /></div>
       </div>
       <div class="grid three" style="margin-top:10px">
-        <div><label for="n_lat">纬度（查天气用）</label><input id="n_lat" type="number" step="0.0001" /></div>
-        <div><label for="n_lon">经度</label><input id="n_lon" type="number" step="0.0001" /></div>
+        <div><label for="n_lat">纬度（查天气用）</label><input id="n_lat" type="number" inputmode="decimal" step="0.0001" /></div>
+        <div><label for="n_lon">经度</label><input id="n_lon" type="number" inputmode="decimal" step="0.0001" /></div>
         <div>
           <label for="n_search">从 Nearcade 搜店自动填</label>
-          <div class="row"><input id="n_search" placeholder="店名关键词" /><button class="ghost" id="doSearch">搜索</button></div>
+          <div class="row"><input id="n_search" placeholder="店名关键词" style="flex:1;min-width:120px" /><button class="ghost" id="doSearch">搜索</button></div>
         </div>
       </div>
       <div id="searchResults"></div>
       <div class="grid two" style="margin-top:10px">
-        <div><label for="n_shop">Nearcade 店铺 ID</label><input id="n_shop" type="number" min="1" /></div>
-        <div><label for="n_game">Nearcade 机种 ID（gameId）</label><input id="n_game" type="number" min="1" /></div>
+        <div><label for="n_shop">Nearcade 店铺 ID</label><input id="n_shop" type="number" inputmode="numeric" min="1" /></div>
+        <div><label for="n_game">Nearcade 机种 ID（gameId）</label><input id="n_game" type="number" inputmode="numeric" min="1" /></div>
       </div>
       <div style="margin-top:10px">
         <label for="n_query">查询消息模板（留空用默认）</label>
-        <textarea id="n_query" placeholder="{displayName} 当前 {currentCount} 人，等待 {waitTime} 分钟"></textarea>
-        <p class="hint">可用占位符：{displayName} {currentCount} {machineCount} {waitTime} {updateTime} {minutesAgo} {noticeBlock} {nearcadeLink} {externalStatus} {diff} {trendDesc} {sampleCount}</p>
+        <textarea id="n_query" placeholder="→ {currentCount} 人 {freshness}"></textarea>
+        <p class="hint">占位符：{currentCount} {freshness} {updateTime} {waitTime} {displayName} {machineCount} {diff} {nearcadeLink}</p>
       </div>
       <div class="row" style="margin-top:10px"><button class="primary" id="createArcade">添加</button></div>
     </details>
   </section>
 
-  <!-- 运行日志：群消息只保留人数三行，外部故障/同步结果等都在这里看。 -->
+  <!-- 运行日志 -->
   <section class="panel" id="logPanel" hidden>
-    <h2>运行日志</h2>
+    <h2>运行日志<span class="spacer"></span><span class="hint" id="logCount" style="margin:0"></span></h2>
     <div class="row" style="margin-bottom:10px">
       <button class="ghost" id="reloadLogs">刷新</button>
-      <label style="min-width:auto;display:flex;align-items:center;gap:6px;margin:0">
-        <input type="checkbox" id="autoLogs" style="width:auto" checked /> 每 10 秒自动刷新
+      <label style="display:flex;align-items:center;gap:6px;margin:0;min-width:auto">
+        <input type="checkbox" id="autoLogs" checked /> 自动刷新
       </label>
-      <span class="hint" id="logCount"></span>
     </div>
     <div id="logs"><div class="empty">尚未加载</div></div>
     <p class="hint">
-      这里记录 Nearcade 读写结果、数据陈旧、指令出错等情况 —— 它们**不会**发到群里，
-      群消息只有人数那三行。保留最近 500 条。进程级日志（启动、崩溃）在服务器上看
-      <code>data/arcade-queue.log</code>。
+      Nearcade 读写、数据陈旧、指令出错都记在这里，<strong>不会发到群里</strong>——群消息只有人数三行。
+      保留最近 500 条。进程日志（启动、崩溃）在服务器 <code>data/arcade-queue.log</code>。
     </p>
   </section>
 
+  <!-- 指令说明 -->
   <section class="panel" id="helpPanel" hidden>
     <h2>群内指令</h2>
-    <table>
-      <tr><th>指令</th><th>作用</th></tr>
-      <tr><td><code>&lt;别名&gt;几</code> / <code>&lt;别名&gt;j</code> / 裸别名</td><td>查当前人数与等待时间</td></tr>
-      <tr><td><code>&lt;别名&gt;5</code></td><td>把人数设为 5</td></tr>
-      <tr><td><code>&lt;别名&gt;+2</code> / <code>&lt;别名&gt;-1</code></td><td>增减人数</td></tr>
-      <tr><td><code>predict &lt;别名&gt;</code></td><td>等待预估与近 2 小时趋势</td></tr>
-      <tr><td><code>weather &lt;别名&gt;</code></td><td>机厅所在地天气（需先填经纬度）</td></tr>
-      <tr><td><code>排卡帮助</code> / <code>排卡列表</code></td><td>用法说明 / 本群机厅一览</td></tr>
-    </table>
-    <p class="hint">本版没有天气定时播报（那需要 Cron Triggers），天气改为群内按需查询。</p>
-    <p class="hint">机器人身份由你自己的 QQ 号（经 NapCat 等 OneBot 客户端登录）提供，不是 QQ 官方机器人。</p>
+    <div class="table-wrap">
+      <table>
+        <tr><th>指令</th><th>作用</th></tr>
+        <tr><td><code>别名几</code> / <code>别名j</code> / 裸别名</td><td>查人数与等待时间</td></tr>
+        <tr><td><code>别名5</code></td><td>把人数设为 5</td></tr>
+        <tr><td><code>别名+2</code> / <code>别名-1</code></td><td>增减人数</td></tr>
+        <tr><td><code>predict 别名</code></td><td>等待预估与趋势</td></tr>
+        <tr><td><code>weather 别名</code></td><td>机厅天气（需填经纬度）</td></tr>
+        <tr><td><code>排卡帮助</code> / <code>排卡列表</code></td><td>用法 / 本群机厅一览</td></tr>
+      </table>
+    </div>
+    <p class="hint">一个 QQ 号可同时服务任意多个群，各群机厅、人数、模板完全独立。</p>
   </section>
 </main>
 
@@ -183,6 +300,7 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;colo
 const $ = (id) => document.getElementById(id);
 let token = '';
 let groupId = '';
+let groups = [];
 
 function toast(message, kind = '') {
   const node = document.createElement('div');
@@ -190,6 +308,11 @@ function toast(message, kind = '') {
   node.textContent = message;
   $('toast').append(node);
   setTimeout(() => node.remove(), 4200);
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
 
 async function api(path, options = {}) {
@@ -204,11 +327,27 @@ async function api(path, options = {}) {
   return data;
 }
 
+// ---------- 抽屉开合 ----------
+// 窄屏下抽屉是覆盖式的，点选群或点遮罩后自动收起，否则会挡住内容。
+function openDrawer(on) {
+  document.body.classList.toggle('drawer-open', on);
+}
+$('menuBtn').onclick = () => openDrawer(!document.body.classList.contains('drawer-open'));
+$('scrim').onclick = () => openDrawer(false);
+// 窄屏才需要自动收起；宽屏抽屉常驻，收起反而奇怪。
+const isNarrow = () => window.matchMedia('(max-width:820px)').matches;
+
+// ---------- 登录态 ----------
 function setLoggedIn(on) {
+  document.body.classList.toggle('anon', !on);
   $('loginPanel').hidden = on;
-  for (const id of ['groupPanel', 'arcadePanel', 'logPanel', 'helpPanel']) $(id).hidden = !on;
   $('logout').hidden = !on;
-  $('who').textContent = on ? '已通过密钥认证' : '';
+  $('who').textContent = on ? '已认证' : '';
+  for (const id of ['groupPanel', 'arcadePanel', 'logPanel', 'helpPanel']) $(id).hidden = true;
+  if (!on) {
+    $('newGroupPanel').hidden = true;
+    $('groupList').innerHTML = '<div class="empty">加载中…</div>';
+  }
 }
 
 $('login').onclick = async () => {
@@ -216,10 +355,11 @@ $('login').onclick = async () => {
   if (!value) return toast('请填写密钥', 'err');
   token = value;
   try {
-    // 用一个无害的读请求探测密钥是否正确。
-    await api('/nearcade/search?q=%E6%B5%8B%E8%AF%95');
+    await api('/groups');           // 用真实接口探测密钥
     sessionStorage.setItem('arcade_token', token);
     setLoggedIn(true);
+    $('helpPanel').hidden = false;
+    await loadGroups();
     toast('密钥有效', 'ok');
   } catch (error) {
     token = '';
@@ -229,57 +369,147 @@ $('login').onclick = async () => {
 
 $('logout').onclick = () => {
   token = '';
+  groupId = '';
   sessionStorage.removeItem('arcade_token');
+  localStorage.removeItem('arcade_gid');
   setLoggedIn(false);
 };
 
-$('loadGroup').onclick = async () => {
-  groupId = $('gid').value.trim();
-  if (!groupId) return toast('请填写 QQ 群号', 'err');
-  if (!/^\d{5,15}$/.test(groupId)) return toast('群号应当是 5–15 位数字', 'err');
+// ---------- 群列表 ----------
+function relTime(epochMs) {
+  if (!epochMs) return '从未上报';
+  const mins = Math.floor((Date.now() - epochMs) / 60000);
+  if (mins < 1) return '刚刚';
+  if (mins < 60) return mins + ' 分钟前';
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return hours + ' 小时前';
+  return Math.floor(hours / 24) + ' 天前';
+}
+
+async function loadGroups() {
+  try {
+    groups = await api('/groups');
+  } catch (error) {
+    return toast('加载群列表失败：' + error.message, 'err');
+  }
+  const box = $('groupList');
+  if (!groups.length) {
+    box.innerHTML = '<div class="empty">还没有配置过任何群。<br>点上方「+ 新群」开始。</div>';
+    return;
+  }
+  box.innerHTML = groups.map((g) => `
+    <button class="gitem${g.group_id === groupId ? ' active' : ''}" data-gid="${escapeHtml(g.group_id)}">
+      <div class="gname">
+        ${escapeHtml(g.label || ('群 ' + g.group_id))}
+        ${g.enabled ? '' : '<span class="off">已关闭</span>'}
+      </div>
+      <div class="gmeta">
+        <span>${g.arcade_count} 家机厅</span>
+        <span>共 ${g.total_count} 人</span>
+        <span>${relTime(g.last_report_at)}</span>
+      </div>
+      ${g.label ? '<div class="gnum">' + escapeHtml(g.group_id) + '</div>' : ''}
+    </button>`).join('');
+  box.querySelectorAll('[data-gid]').forEach((node) => {
+    node.onclick = () => selectGroup(node.dataset.gid);
+  });
+}
+
+$('reloadGroups').onclick = loadGroups;
+
+$('addGroupBtn').onclick = () => {
+  $('newGroupPanel').hidden = false;
+  $('newGid').value = '';
+  $('newLabel').value = '';
+  if (isNarrow()) openDrawer(false);
+  $('newGid').focus();
+};
+$('cancelNewGroup').onclick = () => { $('newGroupPanel').hidden = true; };
+
+$('confirmNewGroup').onclick = async () => {
+  const gid = $('newGid').value.trim();
+  if (!/^\d{5,15}$/.test(gid)) return toast('群号应当是 5–15 位数字', 'err');
+  const label = $('newLabel').value.trim();
+  try {
+    // 群本身不需要"创建"——它只是数据里的一个字段。填了备注就存备注，
+    // 真正让群"存在"于列表里的是添加第一家机厅。
+    if (label) await api('/groups/' + encodeURIComponent(gid) + '/label',
+      { method: 'POST', body: JSON.stringify({ label }) });
+    $('newGroupPanel').hidden = true;
+    await selectGroup(gid);
+    $('addArcadeBox').open = true;
+    toast('接下来添加第一家机厅', 'ok');
+  } catch (error) {
+    toast(error.message, 'err');
+  }
+};
+
+// ---------- 选中某个群 ----------
+async function selectGroup(gid) {
+  groupId = String(gid);
+  localStorage.setItem('arcade_gid', groupId);
+  const found = groups.find((g) => g.group_id === groupId);
+  $('title').textContent = found && found.label ? found.label : '群 ' + groupId;
+  $('gidText').textContent = groupId;
+  $('labelInput').value = found ? found.label : '';
+  for (const id of ['groupPanel', 'arcadePanel', 'logPanel', 'helpPanel']) $(id).hidden = false;
+  if (isNarrow()) openDrawer(false);
   try {
     const state = await api('/groups/' + encodeURIComponent(groupId) + '/enabled');
-    $('enabledTag').textContent = state.enabled ? '已启用' : '已关闭';
-    $('enabledTag').className = 'tag ' + (state.enabled ? 'fresh' : 'stale');
-    $('toggleEnabled').disabled = false;
-    localStorage.setItem('arcade_gid', groupId);
+    paintEnabled(state.enabled);
     await loadArcades();
     await loadLogs();
+    // 标记选中项
+    $('groupList').querySelectorAll('.gitem').forEach((node) => {
+      node.classList.toggle('active', node.dataset.gid === groupId);
+    });
   } catch (error) {
     toast(error.message, 'err');
   }
-};
+}
+
+function paintEnabled(enabled) {
+  $('enabledTag').textContent = enabled ? '已启用' : '已关闭';
+  $('enabledTag').className = 'tag ' + (enabled ? 'fresh' : 'stale');
+}
 
 $('toggleEnabled').onclick = async () => {
+  if (!groupId) return;
   const next = $('enabledTag').textContent !== '已启用';
   try {
-    const state = await api('/groups/' + encodeURIComponent(groupId) + '/enabled', {
-      method: 'POST',
-      body: JSON.stringify({ enabled: next }),
-    });
-    $('enabledTag').textContent = state.enabled ? '已启用' : '已关闭';
-    $('enabledTag').className = 'tag ' + (state.enabled ? 'fresh' : 'stale');
-  } catch (error) {
-    toast(error.message, 'err');
-  }
+    const state = await api('/groups/' + encodeURIComponent(groupId) + '/enabled',
+      { method: 'POST', body: JSON.stringify({ enabled: next }) });
+    paintEnabled(state.enabled);
+    await loadGroups();
+  } catch (error) { toast(error.message, 'err'); }
 };
 
+$('saveLabel').onclick = async () => {
+  if (!groupId) return;
+  try {
+    await api('/groups/' + encodeURIComponent(groupId) + '/label',
+      { method: 'POST', body: JSON.stringify({ label: $('labelInput').value }) });
+    toast('已保存', 'ok');
+    await loadGroups();
+    const found = groups.find((g) => g.group_id === groupId);
+    $('title').textContent = found && found.label ? found.label : '群 ' + groupId;
+  } catch (error) { toast(error.message, 'err'); }
+};
+
+// ---------- 机厅 ----------
 function freshness(arcade) {
   if (arcade.age_seconds === null) return '<span class="tag">尚未上报</span>';
   const minutes = Math.floor(arcade.age_seconds / 60);
-  const label = minutes < 1 ? '刚刚上报' : minutes + ' 分钟前上报';
+  const label = minutes < 1 ? '刚刚上报' : minutes + ' 分钟前';
   return '<span class="tag ' + (arcade.stale ? 'stale' : 'fresh') + '">' + label + '</span>';
 }
 
-function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-}
-
 async function loadArcades() {
+  if (!groupId) return;
   const list = await api('/groups/' + encodeURIComponent(groupId) + '/arcades');
   const container = $('arcades');
   if (!list.length) {
-    container.innerHTML = '<div class="empty">本群还没有机厅，展开下方「添加机厅」新建。</div>';
+    container.innerHTML = '<div class="empty">本群还没有机厅。展开下方「+ 添加机厅」新建。<br>没有机厅时本群不会响应任何指令。</div>';
     return;
   }
   container.innerHTML = list.map((arcade) => `
@@ -291,15 +521,15 @@ async function loadArcades() {
       </div>
       <div class="row" style="margin-top:8px">
         <span class="count">${arcade.count}</span><span class="meta">人</span>
-        <input type="number" min="0" max="100000" value="${arcade.count}" style="width:90px" data-count="${escapeHtml(arcade.id)}" />
+        <input type="number" inputmode="numeric" min="0" max="100000" value="${arcade.count}"
+          style="width:92px;flex:none" data-count="${escapeHtml(arcade.id)}" />
         <button class="ghost" data-set="${escapeHtml(arcade.id)}">设为该人数</button>
         <button class="danger" data-del="${escapeHtml(arcade.id)}">删除</button>
       </div>
       ${arcade.notice ? '<div class="meta" style="margin-top:6px">🪧 ' + escapeHtml(arcade.notice) + '</div>' : ''}
       <div class="meta" style="margin-top:6px">
         ${arcade.nearcade_shop_id ? 'Nearcade #' + arcade.nearcade_shop_id + ' / game ' + arcade.nearcade_game_id : '未关联 Nearcade'}
-        · ${arcade.latitude === null ? '未设坐标（不能查天气）' : arcade.latitude + ', ' + arcade.longitude}
-        · <code>${escapeHtml(arcade.id)}</code>
+        · ${arcade.latitude === null ? '未设坐标' : arcade.latitude + ', ' + arcade.longitude}
       </div>
     </div>`).join('');
 
@@ -308,12 +538,11 @@ async function loadArcades() {
       const id = button.dataset.set;
       const input = container.querySelector('[data-count="' + id + '"]');
       try {
-        await api('/groups/' + encodeURIComponent(groupId) + '/arcades/' + encodeURIComponent(id) + '/report', {
-          method: 'POST',
-          body: JSON.stringify({ value: Number(input.value) }),
-        });
+        await api('/groups/' + encodeURIComponent(groupId) + '/arcades/' + encodeURIComponent(id) + '/report',
+          { method: 'POST', body: JSON.stringify({ value: Number(input.value) }) });
         toast('已更新', 'ok');
         await loadArcades();
+        await loadGroups();
       } catch (error) { toast(error.message, 'err'); }
     };
   });
@@ -321,13 +550,17 @@ async function loadArcades() {
     button.onclick = async () => {
       if (!confirm('删除该机厅？本群的别名与配置会一并移除。')) return;
       try {
-        await api('/groups/' + encodeURIComponent(groupId) + '/arcades/' + encodeURIComponent(button.dataset.del), { method: 'DELETE' });
+        await api('/groups/' + encodeURIComponent(groupId) + '/arcades/' + encodeURIComponent(button.dataset.del),
+          { method: 'DELETE' });
         toast('已删除', 'ok');
         await loadArcades();
+        await loadGroups();
       } catch (error) { toast(error.message, 'err'); }
     };
   });
 }
+
+$('reloadArcades').onclick = loadArcades;
 
 $('doSearch').onclick = async () => {
   const keyword = $('n_search').value.trim();
@@ -339,9 +572,10 @@ $('doSearch').onclick = async () => {
       <div class="arcade" style="margin-top:8px">
         <div class="head"><strong>${escapeHtml(shop.name)}</strong><span class="meta">#${shop.id}</span></div>
         <div class="meta">${escapeHtml(shop.address)}</div>
-        <div class="meta">${shop.games.map((g) => escapeHtml(g.name) + ' (game ' + g.game_id + ' ×' + g.quantity + ')').join('、') || '无机种信息'}</div>
         <div class="row" style="margin-top:6px">
-          ${shop.games.map((g) => '<button class="ghost" data-fill="' + index + '" data-game="' + g.game_id + '" data-qty="' + g.quantity + '">用这个机种填表</button>').join('')}
+          ${shop.games.map((g) => '<button class="ghost" data-fill="' + index + '" data-game="' + g.game_id +
+            '" data-qty="' + g.quantity + '">' + escapeHtml(g.name) + ' ×' + g.quantity + '</button>').join('') ||
+            '<span class="meta">无机种信息</span>'}
         </div>
       </div>`).join('');
     $('searchResults').querySelectorAll('[data-fill]').forEach((button) => {
@@ -359,7 +593,7 @@ $('doSearch').onclick = async () => {
 };
 
 $('createArcade').onclick = async () => {
-  if (!groupId) return toast('先加载一个群', 'err');
+  if (!groupId) return toast('先选一个群', 'err');
   const numberOrNull = (id) => ($(id).value.trim() === '' ? null : Number($(id).value));
   const body = {
     name: $('n_name').value.trim(),
@@ -374,16 +608,17 @@ $('createArcade').onclick = async () => {
   };
   if (!body.name) return toast('名称必填', 'err');
   try {
-    await api('/groups/' + encodeURIComponent(groupId) + '/arcades', { method: 'POST', body: JSON.stringify(body) });
+    await api('/groups/' + encodeURIComponent(groupId) + '/arcades',
+      { method: 'POST', body: JSON.stringify(body) });
     toast('已添加', 'ok');
-    for (const id of ['n_name', 'n_aliases', 'n_notice', 'n_lat', 'n_lon', 'n_shop', 'n_game', 'n_query', 'n_search']) $(id).value = '';
+    for (const id of ['n_name','n_aliases','n_notice','n_lat','n_lon','n_shop','n_game','n_query','n_search']) $(id).value = '';
     $('searchResults').innerHTML = '';
     await loadArcades();
+    await loadGroups();
   } catch (error) { toast(error.message, 'err'); }
 };
 
 // ---------- 运行日志 ----------
-
 const LEVEL_STYLE = {
   error: { color: 'var(--danger)', icon: '✖' },
   warn: { color: 'var(--warn)', icon: '!' },
@@ -391,7 +626,6 @@ const LEVEL_STYLE = {
 };
 
 function formatLogTime(epochMs) {
-  // 服务端存的是 epoch 毫秒；这里按浏览器本地时区显示。
   const d = new Date(epochMs);
   const p = (n) => String(n).padStart(2, '0');
   return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
@@ -402,24 +636,20 @@ async function loadLogs() {
   try {
     const rows = await api('/groups/' + encodeURIComponent(groupId) + '/events?limit=200');
     const box = $('logs');
-    $('logCount').textContent = rows.length ? `共 ${rows.length} 条` : '';
+    $('logCount').textContent = rows.length ? rows.length + ' 条' : '';
     if (!rows.length) {
       box.innerHTML = '<div class="empty">暂无记录。群里查一次人数就会产生日志。</div>';
       return;
     }
-    box.innerHTML =
-      '<div class="table-wrap"><table><tr><th style="width:90px">时间</th><th style="width:30px"></th>' +
-      '<th style="width:110px">类别</th><th>内容</th></tr>' +
+    box.innerHTML = '<div class="table-wrap"><table>' +
       rows.map((row) => {
         const style = LEVEL_STYLE[row.level] || LEVEL_STYLE.info;
         return `<tr>
           <td style="color:var(--ink-subtle);white-space:nowrap">${formatLogTime(row.created_at)}</td>
           <td style="color:${style.color};text-align:center">${style.icon}</td>
-          <td style="color:var(--ink-subtle)"><code>${escapeHtml(row.kind)}</code></td>
           <td>${row.arcade ? '<span class="tag">' + escapeHtml(row.arcade) + '</span> ' : ''}${escapeHtml(row.message)}</td>
         </tr>`;
-      }).join('') +
-      '</table></div>';
+      }).join('') + '</table></div>';
   } catch (error) {
     toast(error.message, 'err');
   }
@@ -427,36 +657,29 @@ async function loadLogs() {
 
 $('reloadLogs').onclick = loadLogs;
 
-// 自动刷新：默认开着，10 秒一次。只在勾选且已加载群时才发请求。
 let logTimer = null;
 function syncLogTimer() {
   if (logTimer) { clearInterval(logTimer); logTimer = null; }
-  if ($('autoLogs').checked) logTimer = setInterval(() => { if (groupId) loadLogs(); }, 10000);
+  if ($('autoLogs').checked) logTimer = setInterval(() => { if (groupId && !document.hidden) loadLogs(); }, 10000);
 }
 $('autoLogs').onchange = syncLogTimer;
 syncLogTimer();
 
 // ---------- 会话恢复 ----------
-
 /**
  * 刷新页面后自动回到上次的状态。
  *
  * 早先只把群号填回输入框、不自动加载，结果每次刷新都得再点一次「加载」
- * 才能看到机厅列表（用户反馈的问题）。现在密钥有效且记得群号时，
- * 直接把机厅与日志一起拉出来。
+ * 才能看到机厅列表（用户反馈的问题）。
  */
 async function restoreSession() {
   const savedToken = sessionStorage.getItem('arcade_token');
-  const savedGid = localStorage.getItem('arcade_gid');
-  if (savedGid) $('gid').value = savedGid;
   if (!savedToken) return;
-
   token = savedToken;
   try {
-    // 先确认密钥仍然有效——密钥可能已在服务端改过。
-    await api('/nearcade/search?q=%E6%B5%8B%E8%AF%95');
+    await api('/groups');
   } catch {
-    // 失效就清掉，让用户重新输入，而不是留在「看起来已登录但什么都点不动」的状态。
+    // 失效就清掉，让用户重新输入，而不是留在「看起来已登录但点不动」的状态。
     token = '';
     sessionStorage.removeItem('arcade_token');
     setLoggedIn(false);
@@ -464,19 +687,14 @@ async function restoreSession() {
     return;
   }
   setLoggedIn(true);
-  if (!savedGid) return;
+  $('helpPanel').hidden = false;
+  await loadGroups();
 
-  groupId = savedGid;
-  try {
-    const state = await api('/groups/' + encodeURIComponent(groupId) + '/enabled');
-    $('enabledTag').textContent = state.enabled ? '已启用' : '已关闭';
-    $('enabledTag').className = 'tag ' + (state.enabled ? 'fresh' : 'stale');
-    $('toggleEnabled').disabled = false;
-    await loadArcades();
-    await loadLogs();
-  } catch (error) {
-    toast('自动加载上次的群失败：' + error.message, 'err');
-  }
+  const savedGid = localStorage.getItem('arcade_gid');
+  // 上次看的群如果还在列表里就直接打开；否则有群就打开第一个。
+  if (savedGid && groups.some((g) => g.group_id === savedGid)) await selectGroup(savedGid);
+  else if (groups.length) await selectGroup(groups[0].group_id);
+  else if (isNarrow()) openDrawer(true);   // 一个群都没有时，把抽屉拉出来引导操作
 }
 
 restoreSession();

@@ -65,6 +65,20 @@ export interface HistoryEntry {
   created_at: number;
 }
 
+/** 控制台群列表里的一行。 */
+export interface GroupSummary {
+  group_id: string;
+  /** 用户起的备注名，空串表示没起过。 */
+  label: string;
+  /** 本群配了几家机厅。 */
+  arcade_count: number;
+  /** 各机厅当前人数之和，用于一眼看出哪个群在活跃。 */
+  total_count: number;
+  /** 最近一次上报时间（毫秒）。0 = 从未上报。 */
+  last_report_at: number;
+  enabled: boolean;
+}
+
 /** 运行日志条目，展示在控制台。 */
 export interface EventEntry {
   id: number;
@@ -497,6 +511,72 @@ export class QueueStore {
    * 幂等：首次见到该 msg_id 返回 true，重复推送返回 false。
    * QQ 平台明确说相同 msg_id 可能多次推送，不去重会重复回复（bot 版的双发老问题）。
    */
+  /**
+   * 列出所有配置过机厅的群，给控制台的群列表用。
+   *
+   * 数据库里没有「群」这张表——群只是各表里的一个字段。所以这里从
+   * group_arcade 反推：配过机厅的群才算「在用」。没配过机厅的群即便机器人
+   * 在里面也不列出来，因为那种群本来就不会响应任何指令。
+   *
+   * 排序：先按最近上报时间倒序（活跃的在上面），再按群号，保证结果稳定。
+   */
+  async listGroups(): Promise<GroupSummary[]> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT
+           g.group_id                          AS group_id,
+           COALESCE(m.label, '')               AS label,
+           COUNT(*)                            AS arcade_count,
+           COALESCE(SUM(a.count), 0)           AS total_count,
+           COALESCE(MAX(a.updated_at), 0)      AS last_report_at,
+           COALESCE(s.enabled, 1)              AS enabled
+         FROM group_arcade g
+         JOIN arcade a ON a.id = g.arcade_id
+         LEFT JOIN group_meta m ON m.group_id = g.group_id
+         LEFT JOIN queue_group_setting s ON s.group_id = g.group_id
+         GROUP BY g.group_id
+         ORDER BY last_report_at DESC, g.group_id`,
+      )
+      .all<{
+        group_id: string;
+        label: string;
+        arcade_count: number;
+        total_count: number;
+        last_report_at: number;
+        enabled: number;
+      }>();
+    return (results ?? []).map((row) => ({
+      group_id: String(row.group_id),
+      label: String(row.label ?? ''),
+      arcade_count: Number(row.arcade_count) || 0,
+      total_count: Number(row.total_count) || 0,
+      last_report_at: Number(row.last_report_at) || 0,
+      enabled: Boolean(row.enabled),
+    }));
+  }
+
+  /** 给群起备注名。传空串等于清除备注。 */
+  async setGroupLabel(groupId: string, label: string): Promise<string> {
+    const value = String(label ?? '').trim();
+    if (value.length > 60) throw new ValidationError('群备注最多 60 字符');
+    await this.db
+      .prepare(
+        `INSERT INTO group_meta(group_id, label, updated_at) VALUES(?,?,?)
+         ON CONFLICT(group_id) DO UPDATE SET label = excluded.label, updated_at = excluded.updated_at`,
+      )
+      .bind(String(groupId), value, this.now())
+      .run();
+    return value;
+  }
+
+  async getGroupLabel(groupId: string): Promise<string> {
+    const row = await this.db
+      .prepare('SELECT label FROM group_meta WHERE group_id = ?')
+      .bind(String(groupId))
+      .first<{ label: string }>();
+    return row ? String(row.label ?? '') : '';
+  }
+
   /**
    * 记一条运行日志。给维护者在控制台看，不发到群里。
    *

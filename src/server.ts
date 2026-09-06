@@ -204,9 +204,24 @@ async function handleApiRequest(
       return jsonReply(await fetchShop(shopId));
     }
 
+    // GET /api/groups —— 列出所有配置过的群，控制台左侧列表用。
+    // 数据库没有「群」表，这是从 group_arcade 反推出来的（见 store.listGroups）。
+    if (method === 'GET' && segments[1] === 'groups' && !segments[2]) {
+      return jsonReply(await store.listGroups());
+    }
+
     // 以下都在 /api/groups/<gid>/... 之下。gid 是真实 QQ 群号。
     if (segments[1] !== 'groups' || !segments[2]) return jsonReply({ error: '未知接口' }, 404);
     const groupId = decodeURIComponent(segments[2]);
+
+    // GET/POST /api/groups/<gid>/label —— 群备注（纯数字群号认不出来）
+    if (segments[3] === 'label') {
+      if (method === 'GET') return jsonReply({ label: await store.getGroupLabel(groupId) });
+      if (method === 'POST') {
+        const body = parseBody();
+        return jsonReply({ label: await store.setGroupLabel(groupId, String(body.label ?? '')) });
+      }
+    }
 
     // GET /api/groups/<gid>/events?limit=N —— 运行日志（外部服务故障、同步结果等）。
     // 这些信息刻意不发到群里，只在控制台看。
