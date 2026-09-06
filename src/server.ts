@@ -71,6 +71,29 @@ class AuthThrottle {
   }
 }
 
+/**
+ * 判定客户端 IP —— 这是限流的记账键，取错等于限流失效。
+ *
+ * 默认只用 socket 地址。`X-Forwarded-For` 在直连场景下完全由客户端控制，
+ * 信任它就等于让攻击者自己决定限流桶：每次请求换一个值即可无限爆破
+ * CONSOLE_TOKEN（实测伪造 XFF 时 30 次尝试 0 次被拦，见
+ * test/server.test.ts 的相关用例）。
+ *
+ * 只有当 TRUST_PROXY=true（即确实跑在会重写该头的反向代理之后）才读它，
+ * 并且取**最后一段**而不是第一段：代理会把上游 IP 追加到链尾，
+ * 最后一段是紧邻本服务的那一跳，客户端伪造的内容只能出现在链首。
+ */
+export function clientIp(request: IncomingMessage, trustProxy: boolean): string {
+  const socketIp = request.socket.remoteAddress || 'unknown';
+  if (!trustProxy) return socketIp;
+  const header = request.headers['x-forwarded-for'];
+  const chain = (Array.isArray(header) ? header.join(',') : String(header ?? ''))
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return chain.length ? chain[chain.length - 1]! : socketIp;
+}
+
 /** 定长比较，避免用计时差异逐字节试出密钥。 */
 function timingSafeEqualString(a: string, b: string): boolean {
   const encoder = new TextEncoder();
@@ -292,8 +315,7 @@ export function createRequestHandler(deps: ServerDeps) {
     const url = new URL(request.url ?? '/', 'http://localhost');
     const path = url.pathname;
     const method = (request.method ?? 'GET').toUpperCase();
-    // 直连场景取 socket 地址；将来放到 nginx 后面时 X-Forwarded-For 才有意义。
-    const ip = String(request.headers['x-forwarded-for'] ?? '').split(',')[0]?.trim() || request.socket.remoteAddress || 'unknown';
+    const ip = clientIp(request, deps.config.trustProxy);
 
     let reply: ReplyPayload;
 

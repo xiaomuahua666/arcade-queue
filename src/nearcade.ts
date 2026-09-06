@@ -35,7 +35,7 @@ const READ_TIMEOUT_MS = 8000;
 const WRITE_TIMEOUT_MS = 5000;
 
 async function fetchJson(url: string, init: RequestInit, timeoutMs: number): Promise<unknown> {
-  // Workers 的 fetch 没有内建超时，必须自己用 AbortSignal 掐，否则外部服务
+  // fetch 没有内建超时，必须自己用 AbortSignal 掐，否则外部服务
   // 挂起会拖死整个请求（QQ 被动回复只有 5 分钟窗口，但用户等不了那么久）。
   const response = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
   if (!response.ok) throw new Error(`Nearcade HTTP ${response.status}`);

@@ -51,6 +51,7 @@ async function startServer(overrides: Partial<Config> = {}): Promise<Harness> {
     // 测试不落日志文件：内存库 + 无副作用，跑完不留垃圾。
     logFile: '',
     logMaxMb: 10,
+    trustProxy: false,
     ...overrides,
   };
   const db = createTestDb();
@@ -675,6 +676,77 @@ test('一个号服务多群：三个群同名别名互不干扰（端到端）',
     const rows = (await (await api(h.url, '/api/groups')).json()) as Array<{ group_id: string }>;
     assert.equal(rows.length, 3);
     for (const gid of groups) assert.ok(rows.some((row) => row.group_id === gid), `列表应含 ${gid}`);
+  } finally {
+    await h.close();
+  }
+});
+
+// ---------- 限流的 IP 判定 ----------
+// 背景：审计实测发现，无条件信任 X-Forwarded-For 时，每次请求换一个头值
+// 就能完全绕过密钥爆破限流（30 次尝试 0 次被拦）。而本项目的推荐部署是
+// HOST=0.0.0.0 直连公网、无反向代理，正是最坏情况。
+
+test('默认不信任 X-Forwarded-For：伪造该头无法绕过限流', async () => {
+  const h = await startServer();
+  try {
+    // 每次换一个伪造 IP，试 15 次。若 XFF 被信任，每次都是新桶、永不锁定。
+    const codes: number[] = [];
+    for (let i = 0; i < 15; i += 1) {
+      const response = await fetch(`${h.url}/api/groups`, {
+        headers: { Authorization: 'Bearer wrong', 'X-Forwarded-For': `10.0.0.${i}` },
+      });
+      codes.push(response.status);
+    }
+    assert.ok(codes.includes(429), `应当在 10 次后锁定，实际状态序列：${codes.join(',')}`);
+  } finally {
+    await h.close();
+  }
+});
+
+test('默认不信任代理头时，锁定按真实 socket 地址生效', async () => {
+  const h = await startServer();
+  try {
+    for (let i = 0; i < 11; i += 1) await api(h.url, '/api/groups', { token: 'wrong' });
+    // 换 XFF 也不该解锁——记账键是 socket 地址。
+    const spoofed = await fetch(`${h.url}/api/groups`, {
+      headers: { Authorization: 'Bearer wrong', 'X-Forwarded-For': '1.2.3.4' },
+    });
+    assert.equal(spoofed.status, 429, '伪造 XFF 不该重置限流');
+  } finally {
+    await h.close();
+  }
+});
+
+test('TRUST_PROXY=true 时读 XFF 的最后一段（紧邻本服务的那一跳）', async () => {
+  // 代理把上游 IP 追加到链尾，所以最后一段才是可信的；客户端伪造的内容
+  // 只能出现在链首。取错端等于把限流交回给攻击者。
+  const h = await startServer({ trustProxy: true });
+  try {
+    const codes: number[] = [];
+    for (let i = 0; i < 15; i += 1) {
+      const response = await fetch(`${h.url}/api/groups`, {
+        headers: {
+          Authorization: 'Bearer wrong',
+          // 链首是攻击者可控的伪造值，链尾是代理写入的真实来源。
+          'X-Forwarded-For': `203.0.113.${i}, 10.0.0.1`,
+        },
+      });
+      codes.push(response.status);
+    }
+    assert.ok(
+      codes.includes(429),
+      `取链尾时所有请求同属一个桶，应当锁定；实际：${codes.join(',')}`,
+    );
+  } finally {
+    await h.close();
+  }
+});
+
+test('TRUST_PROXY=true 但没有 XFF 头时退回 socket 地址', async () => {
+  const h = await startServer({ trustProxy: true });
+  try {
+    for (let i = 0; i < 11; i += 1) await api(h.url, '/api/groups', { token: 'wrong' });
+    assert.equal((await api(h.url, '/api/groups', { token: 'wrong' })).status, 429);
   } finally {
     await h.close();
   }

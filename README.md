@@ -73,6 +73,7 @@ echo "CONSOLE_TOKEN=$(openssl rand -hex 24)"
 | `DB_PATH` | `./data/arcade-queue.db` | SQLite 文件路径 |
 | `CONSOLE_TOKEN` | 空 | 控制台密钥。**空则管理 API 全部拒绝** |
 | `ONEBOT_SECRET` | 空 | 上报签名密钥，须与 NapCat 一致 |
+| `TRUST_PROXY` | `false` | 是否信任 `X-Forwarded-For` 判定来源 IP。直连公网时**保持 false**，否则密钥爆破限流可被绕过 |
 | `NEARCADE_TOKEN` | 空 | 可选。配了才向 Nearcade 写上报 |
 | `QWEATHER_KEY` | 空 | 可选。不配则只用 Open-Meteo（免 key） |
 | `ONEBOT_API_BASE` | 空 | 可选。仅主动推送需要，如 `http://127.0.0.1:3000` |

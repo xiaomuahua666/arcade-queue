@@ -882,6 +882,7 @@ ssh -L 8787:127.0.0.1:8787 root@你的IP
 | `DB_PATH` | `./data/arcade-queue.db` | 数据文件位置 |
 | `LOG_FILE` | `./data/arcade-queue.log` | 日志文件。留空则只输出到屏幕 |
 | `LOG_MAX_MB` | `10` | 日志超过这个大小就轮转，只保留一份历史 |
+| `TRUST_PROXY` | `false` | 是否信任 `X-Forwarded-For` 判定来源 IP。**直连公网时保持 false**，否则密钥爆破限流可被绕过；仅在 nginx 等反向代理之后才设 true |
 | `CONSOLE_TOKEN` | 空 | 控制台密码。**空 = 控制台完全无法使用** |
 | `ONEBOT_SECRET` | 空 | 与 NapCat 对暗号用。必须两边一致 |
 | `NEARCADE_TOKEN` | 空 | 可选。同步人数到 Nearcade |

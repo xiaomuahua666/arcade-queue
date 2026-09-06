@@ -29,6 +29,14 @@ export interface Config {
   logFile: string;
   /** 日志单文件大小上限（MB），超过则轮转，只保留一个历史文件。 */
   logMaxMb: number;
+  /**
+   * 是否信任 X-Forwarded-For 头来判定客户端 IP。
+   *
+   * 默认 false。直连公网时该头完全由客户端控制，信任它等于把限流交给攻击者：
+   * 每次请求换一个值就能无限次爆破 CONSOLE_TOKEN（实测 30 次尝试 0 次被拦）。
+   * 只有当本服务确实跑在会重写该头的反向代理（nginx 等）之后，才应设为 true。
+   */
+  trustProxy: boolean;
 }
 
 function readEnv(name: string, fallback = ''): string {
@@ -79,6 +87,9 @@ export function loadConfig(): Config {
     qweatherHost: readEnv('QWEATHER_HOST', 'devapi.qweather.com'),
     logFile: readEnv('LOG_FILE', './data/arcade-queue.log'),
     logMaxMb: logMaxMb,
+    // 只有显式写 true/1/yes 才开启，拼错一律按「不信任」处理——
+    // 安全开关的默认值必须是安全的那一侧。
+    trustProxy: ['true', '1', 'yes'].includes(readEnv('TRUST_PROXY', 'false').toLowerCase()),
   };
 }
 
@@ -111,6 +122,14 @@ export function auditConfig(config: Config): string[] {
       `监听 ${config.host}:${config.port} 且无 TLS：控制台密钥以明文经过网络。` +
         '建议只在自己网络下使用，或后续加 nginx + HTTPS。',
     );
+    if (config.trustProxy) {
+      // 这个组合最危险：直连公网却信任客户端可控的头，等于把限流交给攻击者
+      // （每个请求换一个 X-Forwarded-For 就能无限试密钥）。
+      warnings.push(
+        'TRUST_PROXY=true 但服务直接监听公网：X-Forwarded-For 由客户端控制，' +
+          '密钥爆破限流会被绕过。只有确实在反向代理之后才应开启。',
+      );
+    }
   }
 
   return warnings;

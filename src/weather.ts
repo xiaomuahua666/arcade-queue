@@ -2,8 +2,8 @@
  * 机厅天气查询。双供应商：和风天气（需 key，含预警）→ Open-Meteo（免 key）自动降级。
  *
  * 与 bot 版的差异：**没有定时播报**。bot 版靠 apscheduler 每 5 分钟醒一次逐群推送，
- * Workers 上那需要 Cron Triggers，按需求明确不做。所以天气只在群里
- * 主动发 `weather <别名>` 时查一次。相应地 queue_weather_setting 表也不存在。
+ * 本版按需求明确不做定时任务。所以天气只在群里主动发 `weather <别名>` 时查一次，
+ * 相应地 queue_weather_setting 表也不存在。
  */
 
 /** WMO 天气码中文表（Open-Meteo 用这套编码）。 */

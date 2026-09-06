@@ -81,6 +81,8 @@ class Statement implements PreparedStatement {
 
 class SqliteDatabase implements Database {
   private readonly db: DatabaseSync;
+  /** 串行队列的队尾。见 serialize()。 */
+  private tail: Promise<void> = Promise.resolve();
 
   constructor(db: DatabaseSync) {
     this.db = db;
@@ -90,17 +92,56 @@ class SqliteDatabase implements Database {
     return new Statement(this.db, sql);
   }
 
+  /**
+   * 在单个事务里顺序执行多条语句；任一失败则整体回滚。
+   *
+   * **必须串行化**：SQLite 不支持嵌套事务，而本方法在 BEGIN 与 COMMIT 之间有
+   * await 让出点。两个并发调用会交错，第二个 BEGIN 撞上第一个未提交的事务，
+   * 直接抛 `cannot start a transaction within a transaction`。
+   *
+   * 这不是理论风险——`Promise.all([store.report(...), store.report(...)])`
+   * 就会触发（见 test/concurrency.test.ts）。当前的单进程 HTTP 路径侥幸不交错，
+   * 但任何定时任务、批量导入或 Promise.all 调用点都会炸。
+   *
+   * 串行化的代价可以忽略：单连接 SQLite 的写入本来就是串行的，
+   * 并发只能制造事务交错，换不来任何吞吐。
+   */
   async batch(statements: PreparedStatement[]): Promise<unknown[]> {
-    this.db.exec('BEGIN');
-    try {
-      const results: unknown[] = [];
-      for (const statement of statements) results.push(await statement.run());
-      this.db.exec('COMMIT');
-      return results;
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      throw error;
-    }
+    return this.serialize(async () => {
+      this.db.exec('BEGIN');
+      try {
+        const results: unknown[] = [];
+        for (const statement of statements) results.push(await statement.run());
+        this.db.exec('COMMIT');
+        return results;
+      } catch (error) {
+        // 回滚本身也可能失败（例如事务已被隐式回滚），不能让它盖掉原始错误。
+        try {
+          this.db.exec('ROLLBACK');
+        } catch {
+          /* 保留原始错误 */
+        }
+        throw error;
+      }
+    });
+  }
+
+  /**
+   * 把任务排进串行队列，保证同一时刻只有一个事务在跑。
+   *
+   * 实现要点：`tail` 始终指向队尾的 promise，新任务挂在它后面。用
+   * `.then(run, run)`（成功与失败都继续）而不是 `.then(run)`，否则前一个任务
+   * 抛错就会把整条队列永久卡死——那比原本的崩溃更难排查。
+   */
+  private serialize<T>(task: () => Promise<T>): Promise<T> {
+    const result = this.tail.then(task, task);
+    // 队尾只关心「跑完了」，不关心成败，所以吞掉 rejection 避免
+    // unhandledRejection；真正的错误由上面的 result 抛给调用方。
+    this.tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   close(): void {

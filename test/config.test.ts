@@ -21,6 +21,7 @@ function withEnv(vars: Record<string, string | undefined>, body: () => void): vo
     'QWEATHER_HOST',
     'LOG_FILE',
     'LOG_MAX_MB',
+    'TRUST_PROXY',
   ];
   const saved = new Map(keys.map((key) => [key, process.env[key]]));
   for (const key of keys) delete process.env[key];
@@ -52,6 +53,7 @@ function baseConfig(overrides: Partial<Config> = {}): Config {
     // 测试里不写日志文件：只验配置体检逻辑，不该产生副作用文件。
     logFile: '',
     logMaxMb: 10,
+    trustProxy: false,
     ...overrides,
   };
 }
@@ -175,4 +177,27 @@ test('loadConfig 拒绝非法的 LOG_MAX_MB', () => {
       assert.throws(() => loadConfig(), /LOG_MAX_MB 无效/, `LOG_MAX_MB=${bad}`);
     });
   }
+});
+
+test('TRUST_PROXY 默认关闭，只有显式 true/1/yes 才开启', () => {
+  withEnv({}, () => assert.equal(loadConfig().trustProxy, false, '默认必须是安全的那一侧'));
+  for (const value of ['true', 'TRUE', '1', 'yes']) {
+    withEnv({ TRUST_PROXY: value }, () => assert.equal(loadConfig().trustProxy, true, `TRUST_PROXY=${value}`));
+  }
+  // 拼错、乱填一律按「不信任」处理，不能因为写了个非空值就当开启
+  for (const value of ['false', '0', 'no', 'ture', 'on', '']) {
+    withEnv({ TRUST_PROXY: value }, () => assert.equal(loadConfig().trustProxy, false, `TRUST_PROXY=${value}`));
+  }
+});
+
+test('auditConfig：公网监听 + 信任代理头是最危险组合，必须警告', () => {
+  const warnings = auditConfig(baseConfig({ host: '0.0.0.0', trustProxy: true }));
+  const hit = warnings.find((w) => w.includes('TRUST_PROXY'));
+  assert.ok(hit, `应当警告这个组合：${JSON.stringify(warnings)}`);
+  assert.match(hit!, /绕过/, '要说清后果是限流被绕过');
+});
+
+test('auditConfig：仅本机监听时开 TRUST_PROXY 不警告（代理场景合理）', () => {
+  const warnings = auditConfig(baseConfig({ host: '127.0.0.1', trustProxy: true }));
+  assert.equal(warnings.filter((w) => w.includes('TRUST_PROXY')).length, 0);
 });

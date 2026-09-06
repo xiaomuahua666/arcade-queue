@@ -1,10 +1,10 @@
--- 机厅排卡：D1 初始 schema
+-- 机厅排卡：初始 schema（SQLite，经 node:sqlite 执行）
 --
 -- 与 bot 版（libraries/maimaidx_group_queue.py）的差异，都是刻意的：
 --   1. group_id 直接存**真实 QQ 群号**（字符串形式），不再有「控制台内部群 id →
 --      namespace+raw_group_id」那层映射。机器人身份来自 OneBot 客户端登录的真人 QQ。
 --   2. 时间戳统一 INTEGER 毫秒（JS Date.now()），bot 版是 REAL 秒。
---   3. 删掉 queue_weather_setting 与 group_arcade.subscribed：天气播报依赖 cron，本版不做。
+--   3. 删掉 queue_weather_setting 与 group_arcade.subscribed：本版不做定时播报。
 --      天气改为群内 `weather <别名>` 按需查询。
 --   4. 新增 seen_message：OneBot 客户端在上报超时时会重发同一事件，用它做幂等，
 --      避免重复回复、更避免增量上报被重复累加。

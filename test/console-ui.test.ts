@@ -293,3 +293,94 @@ test('顶栏标题用省略号而非换行（顶栏高度固定）', () => {
   assert.match(rule, /text-overflow:ellipsis/);
   assert.match(rule, /min-width:0/, '要允许被 flex 压缩，否则省略号不生效');
 });
+
+// ---------- 真实执行前端纯函数 ----------
+/**
+ * 上面那些断言都是静态文本匹配：能抓「规则被删了」，抓不到「写了但不生效」。
+ * 这一段把前端里不依赖 DOM 的纯函数抽出来真正跑一遍，验行为而非文本。
+ *
+ * 做法是从 <script> 里按名字提取函数源码，用 new Function 求值。不引 jsdom：
+ * 那会给一个运行时零依赖的项目加一棵依赖树，而这几个函数根本不碰 DOM。
+ */
+function extractFunction<T>(name: string): T {
+  // 匹配 `function name(...) { ... }`，靠大括号配平找结尾——比正则贪婪匹配可靠。
+  const start = script.indexOf(`function ${name}(`);
+  assert.notEqual(start, -1, `找不到函数 ${name}`);
+  let depth = 0;
+  let end = -1;
+  for (let i = script.indexOf('{', start); i < script.length; i += 1) {
+    if (script[i] === '{') depth += 1;
+    else if (script[i] === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        end = i + 1;
+        break;
+      }
+    }
+  }
+  assert.notEqual(end, -1, `函数 ${name} 的大括号不配平`);
+  const source = script.slice(start, end);
+  return new Function(`${source}; return ${name};`)() as T;
+}
+
+test('escapeHtml 真的转义五个危险字符', () => {
+  const escapeHtml = extractFunction<(v: unknown) => string>('escapeHtml');
+  assert.equal(escapeHtml('&'), '&amp;');
+  assert.equal(escapeHtml('<'), '&lt;');
+  assert.equal(escapeHtml('>'), '&gt;');
+  assert.equal(escapeHtml('"'), '&quot;');
+  assert.equal(escapeHtml("'"), '&#39;');
+});
+
+test('escapeHtml 能挡住脚本标签与属性注入', () => {
+  const escapeHtml = extractFunction<(v: unknown) => string>('escapeHtml');
+  // 这两种是插入点最可能遇到的形状：标签注入与属性逃逸。
+  const tagInjection = escapeHtml('<script>x</script>');
+  assert.doesNotMatch(tagInjection, /<script/, `标签未被转义：${tagInjection}`);
+  const attrEscape = escapeHtml('" onerror="x');
+  assert.doesNotMatch(attrEscape, /"/, `引号未被转义：${attrEscape}`);
+});
+
+test('escapeHtml 容忍非字符串输入（数字字段也走它）', () => {
+  const escapeHtml = extractFunction<(v: unknown) => string>('escapeHtml');
+  // Nearcade 的 shop.id / game_id / quantity 是数字，也统一走转义，
+  // 所以它必须能吃 number / null / undefined 而不炸。
+  assert.equal(escapeHtml(17217), '17217');
+  assert.equal(escapeHtml(0), '0');
+  assert.equal(escapeHtml(null), '');
+  assert.equal(escapeHtml(undefined), '');
+});
+
+test('relTime 的分档真的正确', () => {
+  const relTime = extractFunction<(ms: number) => string>('relTime');
+  const now = Date.now();
+  assert.equal(relTime(0), '从未上报');
+  assert.equal(relTime(now), '刚刚');
+  assert.equal(relTime(now - 5 * 60_000), '5 分钟前');
+  assert.equal(relTime(now - 59 * 60_000), '59 分钟前');
+  // 60 分钟是分档边界，最容易写成 off-by-one
+  assert.equal(relTime(now - 60 * 60_000), '1 小时前');
+  assert.equal(relTime(now - 23 * 3600_000), '23 小时前');
+  assert.equal(relTime(now - 24 * 3600_000), '1 天前');
+});
+
+test('formatLogTime 补零且格式稳定', () => {
+  const formatLogTime = extractFunction<(ms: number) => string>('formatLogTime');
+  // 用本地时区构造，避免断言依赖运行环境的时区。
+  const stamp = formatLogTime(new Date(2026, 0, 5, 3, 7, 9).getTime());
+  assert.equal(stamp, '01-05 03:07:09', '月/日/时/分/秒都应补零到两位');
+});
+
+test('前端 escapeHtml 与所有用户内容插入点绑定', () => {
+  // 防御深度：Nearcade 返回的 shop.id / game_id / quantity 虽然在
+  // src/nearcade.ts 的 normalizeShop 里已被强制转成数字，前端仍然转义。
+  // 否则安全性就悬在「另一个文件的某个函数别改坏」上——那不是防护，是运气。
+  const searchRender = script.slice(script.indexOf("$('searchResults').innerHTML"), script.indexOf("querySelectorAll('[data-fill]')"));
+  for (const field of ['shop.name', 'shop.address', 'shop.id', 'g.game_id', 'g.quantity', 'g.name']) {
+    assert.match(
+      searchRender,
+      new RegExp(`escapeHtml\\(${field.replace('.', '\\.')}\\)`),
+      `Nearcade 渲染里 ${field} 未经 escapeHtml`,
+    );
+  }
+});

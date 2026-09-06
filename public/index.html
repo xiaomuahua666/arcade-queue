@@ -606,8 +606,8 @@ async function loadArcades() {
       </div>
       ${arcade.notice ? '<div class="meta" style="margin-top:6px">🪧 ' + escapeHtml(arcade.notice) + '</div>' : ''}
       <div class="meta" style="margin-top:6px">
-        ${arcade.nearcade_shop_id ? 'Nearcade #' + arcade.nearcade_shop_id + ' / game ' + arcade.nearcade_game_id : '未关联 Nearcade'}
-        · ${arcade.latitude === null ? '未设坐标' : arcade.latitude + ', ' + arcade.longitude}
+        ${arcade.nearcade_shop_id ? 'Nearcade #' + escapeHtml(arcade.nearcade_shop_id) + ' / game ' + escapeHtml(arcade.nearcade_game_id) : '未关联 Nearcade'}
+        · ${arcade.latitude === null ? '未设坐标' : escapeHtml(arcade.latitude) + ', ' + escapeHtml(arcade.longitude)}
       </div>
     </div>`).join('');
 
@@ -648,11 +648,11 @@ $('doSearch').onclick = async () => {
     if (!shops.length) return toast('没搜到店铺');
     $('searchResults').innerHTML = shops.map((shop, index) => `
       <div class="arcade" style="margin-top:8px">
-        <div class="head"><strong>${escapeHtml(shop.name)}</strong><span class="meta">#${shop.id}</span></div>
+        <div class="head"><strong>${escapeHtml(shop.name)}</strong><span class="meta">#${escapeHtml(shop.id)}</span></div>
         <div class="meta">${escapeHtml(shop.address)}</div>
         <div class="row" style="margin-top:6px">
-          ${shop.games.map((g) => '<button class="ghost" data-fill="' + index + '" data-game="' + g.game_id +
-            '" data-qty="' + g.quantity + '">' + escapeHtml(g.name) + ' ×' + g.quantity + '</button>').join('') ||
+          ${shop.games.map((g) => '<button class="ghost" data-fill="' + index + '" data-game="' + escapeHtml(g.game_id) +
+            '" data-qty="' + escapeHtml(g.quantity) + '">' + escapeHtml(g.name) + ' ×' + escapeHtml(g.quantity) + '</button>').join('') ||
             '<span class="meta">无机种信息</span>'}
         </div>
       </div>`).join('');

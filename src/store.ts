@@ -298,7 +298,7 @@ export class QueueStore {
     const arcadeId = shared || crypto.randomUUID().replace(/-/g, '');
 
     // 别名唯一性靠 queue_alias 的主键保证；先查一遍是为了给出可读的中文错误，
-    // 而不是把 D1 的 UNIQUE constraint failed 抛给用户。
+    // 而不是把 SQLite 的 UNIQUE constraint failed 抛给用户。
     const aliasKeys = [...new Set([fields.name, ...fields.aliases].map((item) => normalize(item)))];
     const placeholders = aliasKeys.map(() => '?').join(',');
     const clash = await this.db
@@ -443,8 +443,9 @@ export class QueueStore {
   /**
    * 上报人数。delta=true 表示增量。
    *
-   * 增量必须由数据库自己算（count = count + ?），不能先读再写：D1 没有可跨 await 的
-   * 事务，两个人同时 +1 会各读到同一个旧值，其中一次静默丢失。
+   * 增量必须由数据库自己算（count = count + ?），不能先读再写：两个人同时 +1 时
+   * 「先读后写」会各自读到同一个旧值，其中一次静默丢失。交给 SQL 做加法则天然安全。
+   * （batch 本身的并发安全由 db.ts 的串行队列保证，见那里的注释。）
    */
   async report(groupId: string, arcadeId: string, value: number, delta = false, actor = ''): Promise<Arcade> {
     const amount = integer(value, delta ? -LIMITS.machineCount * 1000 : 0);
@@ -507,10 +508,6 @@ export class QueueStore {
     return { arcade, trend, sampleCount: recent.length };
   }
 
-  /**
-   * 幂等：首次见到该 msg_id 返回 true，重复推送返回 false。
-   * QQ 平台明确说相同 msg_id 可能多次推送，不去重会重复回复（bot 版的双发老问题）。
-   */
   /**
    * 列出所有配置过机厅的群，给控制台的群列表用。
    *
@@ -637,6 +634,13 @@ export class QueueStore {
     return results ?? [];
   }
 
+  /**
+   * 幂等：首次见到该 msg_id 返回 true，重复推送返回 false。
+   *
+   * OneBot 客户端在上报超时时会重发同一事件，不去重则「+1」这类增量指令
+   * 会被重复累加。用单条 `INSERT OR IGNORE` 而不是「先查后插」——后者在并发下
+   * 两个请求会都认为自己是首次。
+   */
   async markMessageSeen(msgId: string): Promise<boolean> {
     const id = String(msgId ?? '').trim();
     if (!id) return true;
