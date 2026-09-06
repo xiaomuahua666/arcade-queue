@@ -167,29 +167,95 @@ test('有模板实时预览，且未知占位符会给出警告', () => {
 
 // ---------- 移动端 ----------
 
-test('禁止双指缩放（工具界面已按屏宽适配，缩放只会看到错位界面）', () => {
+test('允许缩放（想看清细节时能放大是正当需求）', () => {
   const viewport = html.match(/<meta\s+name="viewport"[\s\S]*?\/>/)![0];
-  // iOS 从 10 起忽略 user-scalable 但尊重 maximum-scale；Android 相反。两个都要写。
-  assert.match(viewport, /maximum-scale=1/);
-  assert.match(viewport, /user-scalable=no/);
+  // 曾用禁缩放来「解决」长机厅名撑破布局的横滑问题，那是治症状不治病。
+  // 正解是让长文本换行，布局不溢出自然就没有横滑。
+  assert.doesNotMatch(viewport, /user-scalable=no/, '不该禁用户缩放');
+  assert.doesNotMatch(viewport, /maximum-scale/, '不该限制最大缩放');
   assert.match(viewport, /viewport-fit=cover/, '仍要处理刘海屏');
 });
 
-test('禁双击缩放', () => {
-  assert.match(html, /touch-action:manipulation/);
+test('不禁止文本选中（用户要能复制群号、日志等）', () => {
+  // 曾为「防长按误触发选择」把整页 user-select:none，代价是什么都复制不了。
+  assert.doesNotMatch(html, /user-select:none/, '不该禁止选中文本');
 });
 
 test('禁整页橡皮筋回弹（往下拽会露出空白）', () => {
-  assert.match(html, /overscroll-behavior:none/);
+  // 只禁纵向：横向本来就不该有滚动（靠换行保证），禁了反而掩盖问题。
+  assert.match(html, /overscroll-behavior-y:none/);
 });
 
 test('系统「更大字体」不会把界面撑变形', () => {
   assert.match(html, /text-size-adjust:100%/);
 });
 
-test('界面文字默认不可选中，但可复制的内容开放选中', () => {
-  // 手机上长按界面文字容易触发选择而不是滚动。
-  assert.match(html, /body\{-webkit-user-select:none/);
-  // 群号、日志、机厅 id 这些是真要复制的
-  assert.match(html, /code,#logs,\.gnum,#gidText,input,textarea\{-webkit-user-select:text/);
+// ---------- 长内容不撑破布局 ----------
+// 机厅名可能是「焕游星际（上海临港万达广场店）」这种长度，
+// 不换行就会把容器顶宽、整页变成可横向滑动，界面看着像坏了。
+
+test('全局允许任意位置断行', () => {
+  // anywhere 比 break-word 更彻底：连超长无空格串（如整条 URL）也能断。
+  assert.match(html, /body\{[^}]*overflow-wrap:anywhere/);
+});
+
+test('兜底禁止整页横向滚动', () => {
+  assert.match(html, /html\{overflow-x:hidden\}/);
+  assert.match(html, /body\{overflow-x:hidden/);
+});
+
+test('flex 与 grid 子项放开最小宽度限制', () => {
+  // flex 子项默认最小宽度等于内容宽度，不加 min-width:0 的话
+  // 长文本照样顶宽整行，overflow-wrap 也救不回来。
+  assert.match(html, /\.row>\*,\.grid>\*,\.arcade \.head>\*,\.gitem>\*\{min-width:0\}/);
+});
+
+test('机厅名与机厅卡片内的文本允许换行', () => {
+  assert.match(html, /\.arcade \.head strong\{[^}]*overflow-wrap:anywhere/);
+  assert.match(html, /\.arcade \.meta\{[^}]*overflow-wrap:anywhere/);
+});
+
+test('机厅卡片自身不超出容器', () => {
+  assert.match(html, /\.arcade\{[^}]*max-width:100%/);
+});
+
+test('tag 默认可换行，只有确定很短的状态标签才 nowrap', () => {
+  // 日志那栏的 tag 里放的是机厅名，nowrap 会把整行顶宽。
+  const tagRule = html.match(/\.tag\{[^}]*\}/)![0];
+  assert.doesNotMatch(tagRule, /white-space:nowrap/, '.tag 不该默认 nowrap');
+  assert.match(tagRule, /overflow-wrap:anywhere/);
+  assert.match(tagRule, /max-width:100%/);
+  // 短标签走 .tag.nw
+  assert.match(html, /\.tag\.nw\{white-space:nowrap\}/);
+  assert.match(html, /class="tag nw"/, '状态标签应当用 .tag.nw');
+});
+
+test('群备注名允许换行', () => {
+  assert.match(html, /\.gitem \.gname\{[^}]*overflow-wrap:anywhere/);
+  assert.match(html, /\.gitem \.gname\{[^}]*flex-wrap:wrap/);
+});
+
+test('表格用固定布局并允许单元格换行', () => {
+  // 默认的 auto 布局会为容纳长内容无限加宽表格，撑破容器。
+  assert.match(html, /table\{[^}]*table-layout:fixed/);
+  assert.match(html, /th,td\{[^}]*overflow-wrap:anywhere/);
+});
+
+test('日志表给出列宽（fixed 布局下必须指定，否则消息栏太窄）', () => {
+  const logRender = script.slice(script.indexOf('async function loadLogs'));
+  assert.match(logRender, /<colgroup>/);
+  // 消息列不该被 nowrap 卡住
+  assert.doesNotMatch(logRender, /white-space:nowrap/);
+});
+
+test('占位符示例值（含整条链接）允许换行', () => {
+  assert.match(html, /#phHelp td:last-child\{[^}]*overflow-wrap:anywhere/);
+});
+
+test('顶栏标题用省略号而非换行（顶栏高度固定）', () => {
+  // 这里是唯一该截断的地方：换行会把固定高度的顶栏撑破。
+  // 完整名字在「当前群」面板能看到。
+  const rule = html.match(/header h1\{[^}]*\}/)![0];
+  assert.match(rule, /text-overflow:ellipsis/);
+  assert.match(rule, /min-width:0/, '要允许被 flex 压缩，否则省略号不生效');
 });
