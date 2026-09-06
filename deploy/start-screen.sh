@@ -81,6 +81,43 @@ reap_orphan_sockets() {
   done
 }
 
+# 停掉服务进程本身（不动 screen 会话）。
+#
+# 只认 data/service.pid 里记的 PID，并且发信号前先确认那个进程确实是 node，
+# 避免 PID 复用后误杀无关进程（文件可能是上次崩溃留下的陈旧记录）。
+stop_service_process() {
+  local pid_file=data/service.pid pid comm
+  [ -f "$pid_file" ] || return 0
+  pid="$(cat "$pid_file" 2>/dev/null | tr -d '[:space:]')"
+  case "$pid" in
+    '' | *[!0-9]*) rm -f "$pid_file"; return 0 ;;
+  esac
+  if ! kill -0 "$pid" 2>/dev/null; then
+    # 进程早没了，只是文件没清掉。
+    rm -f "$pid_file"
+    return 0
+  fi
+  # 二次确认是我们的 node 进程，别拿着复用的 PID 乱杀。
+  comm="$(cat "/proc/$pid/comm" 2>/dev/null || echo '')"
+  case "$comm" in
+    node | MainThread) ;;
+    *) echo "PID $pid 看起来不是本服务（$comm），不动它"; rm -f "$pid_file"; return 0 ;;
+  esac
+
+  kill "$pid" 2>/dev/null || true
+  # 等它自己关干净，最多 8 秒。
+  local waited=0
+  while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt 16 ]; do
+    sleep 0.5
+    waited=$((waited + 1))
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "服务在 8 秒内没退出，强制结束（PID $pid）"
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+  rm -f "$pid_file"
+}
+
 # 打印会话行：只显示活着的，死会话对用户没有意义还会造成困惑。
 session_line() {
   screen -ls 2>/dev/null | grep "[.]${SESSION}[[:space:]]" | grep -vE "Dead|dead"
@@ -108,12 +145,15 @@ case "${1:-start}" in
     ;;
 
   stop)
+    # 给 node 发 SIGTERM 让它优雅退出（关数据库、确保 WAL 落盘）。
+    #
+    # 不能用 `-X stuff $'\003'`（送 Ctrl+C）：服务在 screen 里会**故意忽略**
+    # SIGINT，防止有人看日志时顺手按 Ctrl+C 把机器人关掉（见 src/main.ts）。
+    stop_service_process
     if session_exists; then
-      # 先送 Ctrl+C 让 node 优雅退出（关数据库、WAL 落盘），再收掉会话。
-      # screen -X 的提示信息走的是 stdout 而不是 stderr，所以要一并重定向，
-      # 否则用户会看到 "Remove dead screens with 'screen -wipe'." 以为报错了。
-      screen -S "${SESSION}" -X stuff $'\003' >/dev/null 2>&1 || true
-      sleep 2
+      # 守护循环见到「正常退出」就不再重启，此时收掉会话即可。
+      # screen -X 的提示走 stdout 而非 stderr，要一并重定向，
+      # 否则用户会看到 "Remove dead screens with 'screen -wipe'." 以为报错。
       screen -S "${SESSION}" -X quit >/dev/null 2>&1 || true
       screen -wipe >/dev/null 2>&1 || true
       echo "已停止 screen 会话 '${SESSION}'"
@@ -150,20 +190,46 @@ fi
 
 # 守护循环：程序退出就重来，避免一次崩溃导致机器人整天下线。
 # 单独写成一个内联脚本喂给 screen，比在 screen 里手敲可靠。
+#
+# 进来先打一条醒目提示，说明离开的正确按法——这是最容易误操作的地方。
+# 服务本身也会忽略 screen 内的 Ctrl+C（见 src/main.ts），双重保险。
 GUARD_CMD="
+# 守护 shell 自己也要忽略 Ctrl+C。
+#
+# node 是以后台任务（&）启动的，因此不在前台进程组里——键盘的 SIGINT 会打到
+# 这个 shell 上而不是 node。如果 shell 就此退出，wait 被中断、node 变孤儿，
+# 服务照样没了（实测踩过：日志里连「Ctrl+C 已被忽略」都不会出现，
+# 因为信号压根没到 node）。所以两层都得挡。
+trap '' INT
+echo '────────────────────────────────────────────────────────'
+echo ' 这是排卡服务的运行窗口。'
+echo ''
+echo '  离开又保持运行： 先按 Ctrl+A ，松手，再按 D'
+echo '  停止服务：       另开终端跑 bash deploy/start-screen.sh stop'
+echo ''
+echo ' Ctrl+C 在这里不会关掉服务（防误操作）。'
+echo '────────────────────────────────────────────────────────'
+echo ''
 while true; do
   echo \"[守护] \$(date '+%Y-%m-%d %H:%M:%S') 启动服务…\"
-  '${NODE_PATH_REAL}' src/main.ts
+  '${NODE_PATH_REAL}' src/main.ts &
+  NODE_PID=\$!
+  # 把 PID 落盘，stop 直接读它发信号。
+  # 不用 pgrep 按命令行匹配：那样会连带命中「命令行里恰好含该路径」的无关进程
+  # （实测把执行 stop 的 shell 自己杀掉了）。
+  echo \"\$NODE_PID\" > data/service.pid
+  wait \$NODE_PID
   CODE=\$?
+  rm -f data/service.pid
   if [ \"\$CODE\" -eq 0 ]; then
-    echo \"[守护] 服务正常退出（Ctrl+C 或收到 SIGTERM），不再重启。\"
+    echo \"[守护] 服务已停止（收到 SIGTERM），不再重启。\"
     break
   fi
-  echo \"[守护] 服务异常退出（退出码 \$CODE），5 秒后重启。按 Ctrl+C 可终止守护。\"
+  echo \"[守护] 服务异常退出（退出码 \$CODE），5 秒后重启。\"
   sleep 5
 done
-echo '[守护] 已停止。按回车关闭这个窗口。'
-read -r _
+echo '[守护] 已停止。这个窗口可以直接关掉。'
+sleep 3600
 "
 
 # -L 开启 screen 自己的日志（作为兜底），-Logfile 指定位置。
